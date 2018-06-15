@@ -39,7 +39,8 @@ If NULL, this is estimated from the data.}
 }
 \value{
 A data.frame of class test_inc with elements:
-'inc': the estimated incidence.
+'incidence': the estimated incidence.
+'transmission rate': the estimated transmission rate.
 'pundiag': The estimated proportion of positive cases that are undiagnosed.
 'psay_undiag': The proportion of positive cases that report being undiagnosed.
 'pmiss_class': the proportion whose diagnosis status is incorrectly reported by the individual .
@@ -57,4 +58,3 @@ Incindence from testing history
 last_hiv_upper should always be greater than last_hiv_lower, and may be infinite (e.g. test was  > 24 months ago). Those with missing data or who never had an hiv test
 should be assigned NA for both their lower and upper bound.
 }
-

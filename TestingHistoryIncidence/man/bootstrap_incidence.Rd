@@ -4,19 +4,13 @@
 \alias{bootstrap_incidence}
 \title{Bootstrap variance for incidence}
 \usage{
-bootstrap_incidence(frame, id_formula, strata_formula, weights_formula,
-  report_hiv_pos, biomarker_art, low_viral, hiv, last_hiv_lower, last_hiv_upper,
-  ever_hiv_test, replicates = 5000, type = "mrbbootstrap", ...)
+bootstrap_incidence(report_hiv_pos, biomarker_art, low_viral, hiv,
+  last_hiv_lower, last_hiv_upper, ever_hiv_test, replicates = 5000,
+  frame = NULL, id_formula = NULL, strata_formula = NULL,
+  weights_formula = NULL, type = "mrbbootstrap", show_progress = TRUE,
+  ...)
 }
 \arguments{
-\item{frame}{a dataframe conatining the variables needed for id_formula, strata_formula and wieghts_formula}
-
-\item{id_formula}{a survey formula specifying the unit of sampling}
-
-\item{strata_formula}{a survey formula specifying the strata structure}
-
-\item{weights_formula}{a survey formula specifying the weights}
-
 \item{report_hiv_pos}{A logical vector indicating whether each subject reported a positive hiv status}
 
 \item{biomarker_art}{A logical vector indicating whether ART antibodies are present. NA if test not done.}
@@ -33,11 +27,20 @@ bootstrap_incidence(frame, id_formula, strata_formula, weights_formula,
 
 \item{replicates}{The number of bootstrap replicated}
 
+\item{frame}{a dataframe conatining the variables needed for id_formula, strata_formula and wieghts_formula}
+
+\item{id_formula}{a survey formula specifying the unit of sampling}
+
+\item{strata_formula}{a survey formula specifying the strata structure}
+
+\item{weights_formula}{a survey formula specifying the weights}
+
 \item{type}{The type of survey bootstrap}
+
+\item{show_progress}{print progress}
 
 \item{...}{additional parameters for testing_incidence}
 }
 \description{
 Bootstrap variance for incidence
 }
-

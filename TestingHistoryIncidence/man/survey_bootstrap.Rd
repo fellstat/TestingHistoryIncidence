@@ -4,12 +4,14 @@
 \alias{survey_bootstrap}
 \title{Perorm a survey bootstrap}
 \usage{
-survey_bootstrap(design, fun, ...)
+survey_bootstrap(design, fun, show_progress = TRUE, ...)
 }
 \arguments{
 \item{design}{an object of class svydesign}
 
 \item{fun}{a function taking a dataframe as a parameter}
+
+\item{show_progress}{print progress}
 
 \item{...}{additional parameters passed to as.srvrepdesign}
 }
@@ -38,4 +40,3 @@ set.seed(1)
 survey_bootstrap(dclus1, fun=function(dat, wts) {sum(wts*dat$api00) / sum(wts)},
   type="bootstrap", replicates=100)$var
 }
-

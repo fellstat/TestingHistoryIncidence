@@ -4,7 +4,7 @@
 \alias{srs_bootstrap}
 \title{Performs a bootstrap assuming a simple random sample}
 \usage{
-srs_bootstrap(dat, fun, replicates = 1000)
+srs_bootstrap(dat, fun, replicates = 1000, show_progress = TRUE)
 }
 \arguments{
 \item{dat}{a data.frame}
@@ -12,6 +12,8 @@ srs_bootstrap(dat, fun, replicates = 1000)
 \item{fun}{a function taking a dataframe as a parameter}
 
 \item{replicates}{the number of replicates}
+
+\item{show_progress}{print progress}
 }
 \value{
 a list with class boot_est containing
@@ -27,4 +29,3 @@ Performs a bootstrap assuming a simple random sample
 df <- data.frame(a=rnorm(100))
 srs_bootstrap(df, colMeans,replicates=100)$var
 }
-
