@@ -9,16 +9,17 @@
   ln_upper <- as.numeric(sapply(ln_windows, function(x) x[2]))
   ln_count <- as.vector(ln_count)
 
-  if(distribution == "weibull"){
-    p <- function(x) suppressWarnings(pweibull(x, scale=scale,shape=k))
-    log_d <- function(x) suppressWarnings(dweibull(x, scale=scale,shape=k, log = TRUE))
-  }else{
-    p <- function(x) suppressWarnings(pgamma(x, scale=scale,shape=k))
-    log_d <- function(x) suppressWarnings(dgamma(x, scale=scale,shape=k, log = TRUE))
-  }
-
   #The data likelihood for time since last negative test
   lik2 <- function(scale,k){
+
+    if(distribution == "weibull"){
+      p <- function(x) suppressWarnings(pweibull(x, scale=scale,shape=k))
+      log_d <- function(x) suppressWarnings(dweibull(x, scale=scale,shape=k, log = TRUE))
+    }else{
+      p <- function(x) suppressWarnings(pgamma(x, scale=scale,shape=k))
+      log_d <- function(x) suppressWarnings(dgamma(x, scale=scale,shape=k, log = TRUE))
+    }
+
     result <- 0
     n <- length(ln_count)
     exact_time <- ln_upper == ln_lower
@@ -43,6 +44,39 @@
   m2
 }
 
+# Fits either a weibull or gamma distribution to possibly windowed data
+.fit_dist_empirical <- function(last_test, ever_test, weights, distribution, time_at_risk, aids_dist){
+  max_years <- 200
+  #construct empirical distribution for TID | TESTER
+  event <- !is.na(tm) & tm < time_at_risk[l_sub]
+  event[(ever_test | is.na(ever_test)) & is.na(tm)] <- NA
+  last_test[!event & !is.na(event)] <- time_at_risk[!event & !is.na(event)]
+  tdist <- survfit(Surv(tm, event) ~ 1)
+  times <- seq(from=0,to=max_years*12, by=iv)
+  inds <- findInterval(times, tdist$time, all.inside = TRUE)
+  test_surv <- tdist$surv[inds]
+  test_surv_cond <- (test_surv - min(test_surv)) / (1-min(test_surv))
+
+  # Calculate tau=P(TESTER) Taking into account censoring
+  po <- 1 - test_surv_cond[pmin(max_years*12-1, ceiling(time_at_risk[l_sub]) + 1) ]
+  tau_lik <- function(tau) {
+    val <- et * log(tau * po) + (!et) * log(1-tau * po)
+    val[!is.finite(val)] <- NA
+    sum(val, na.rm=TRUE)
+  }
+  tau <- optimise(tau_lik,interval = c(0,1),maximum = TRUE)$maximum
+
+  # Calculate competing risk survival function
+  aids_surv <- 1 - aids_dist(times)
+  surv <- test_surv_cond * aids_surv * tau + aids_surv * (1 - tau)
+
+  list(survival=surv,
+       times=times,
+       tau=tau,
+       test_surv_cond=test_surv_cond,
+       aids_surv=aids_surv)
+}
+
 #' Incindence from testing history
 #'
 #' @param report_pos A logical vector indicating whether each subject reported a positive hiv status
@@ -53,8 +87,9 @@
 #' @param last_test A numeric vector indicating the time since last hiv test in months. If testing times are binned into buckets, this is the lower bound of the months since last hiv test.
 #' @param last_upper A numeric vector indicating the upper bound of the months since last hiv test for each individual.
 #' @param weights Survey weights
-#' @param distribution Either "weibull" or "gamma." This controls the family of distribution used to
-#' model time since last test.
+#' @param distribution Either "empirical", "weibull" or "gamma." This controls the family of distribution used to
+#' model time since last test. "empirical" may not be used with binned testing times.
+#' @param test_pop If "negative', the time since last negative is calculated amoung the HIV- population, otherwise it is calculated of those who report being undiagnosed.
 #' @param ptruth The proportion of the diagnosed hiv positive population that would report being hiv positive.
 #' If NULL, this is estimated using biomarker_art and low_viral.
 #' @param ptreated The proportion of hiv positive individuals with postive biomarker_art or low_viral.
@@ -80,8 +115,11 @@
 testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                               ever_test, last_test, last_upper = last_test,
                               weights=rep(1, length(report_pos)) / length(report_pos),
-                              distribution="weibull", ptruth=NULL, ptreated=NULL,
+                              distribution=c("weibull","gamma","empirical"), test_pop=c("negative","undiagnosed"),
+                              ptruth=NULL, ptreated=NULL,
                               non_tester_tid= 123.824){
+  test_pop <- match.arg(test_pop)
+  distribution <- match.arg(distribution)
 
   treated <- low_viral | biomarker_art
   treated[is.na(treated)] <- FALSE
@@ -94,10 +132,20 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   phiv <- as.vector(prop.table(wtd.table(hiv, weights=weights))[2])
 
   # Calculate mean time since last test
-  ln_sub <- !hiv & !is.na(hiv) & !is.na(last_upper) & !is.na(last_test) & !is.na(weights)
-  par <- .fit_dist(last_test[ln_sub], last_upper[ln_sub], weights[ln_sub], distribution)
-  m2 <- .mean_of_dist(par, distribution)
-
+  if(test_pop == "negative")
+    ln_sub <- !hiv & !is.na(hiv)
+  else
+    ln_sub <- !report_pos & !is.na(report_pos) & hiv & !is.na(hiv) & !treated
+  ln_sub <- ln_sub & !is.na(last_upper) & !is.na(last_test) & !is.na(weights)
+  if(distribution == "empirical"){
+    if(!all(last_test[ln_sub] == last_upper[ln_sub])){
+      stop("The empirical distribution can only be used for non-binned testing times.")
+    }
+    m2 <- sum(last_test[ln_sub] * weights[ln_sub]) / sum(weights[ln_sub])
+  }else{
+    par <- .fit_dist(last_test[ln_sub], last_upper[ln_sub], weights[ln_sub], distribution)
+    m2 <- .mean_of_dist(par, distribution)
+  }
   # For those who test, time between infection and test is m2, for those who don't test,
   # we assume diagnosis at AIDS, and use the natural history distribution
   ptester <- as.vector(prop.table(wtd.table(ever_test[!hiv],weights=weights[!hiv]))[2])
