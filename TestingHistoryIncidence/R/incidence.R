@@ -1,3 +1,5 @@
+MAX_YEARS <- 200
+
 
 # Fits either a weibull or gamma distribution to possibly windowed data
 .fit_dist <- function(last_test, last_upper, weights, distribution, initial_rate=1/14){
@@ -45,26 +47,85 @@
 }
 
 # Fits either a weibull or gamma distribution to possibly windowed data
-.fit_dist_empirical <- function(last_test, ever_test, weights, distribution, time_at_risk, aids_dist){
-  max_years <- 200
+.fit_dist_empirical <- function(last_test, ever_test, weights, time_at_risk, aids_dist){
+
   #construct empirical distribution for TID | TESTER
-  event <- !is.na(tm) & tm < time_at_risk[l_sub]
+  tm <- last_test
+  event <- !is.na(tm) & tm < time_at_risk
   event[(ever_test | is.na(ever_test)) & is.na(tm)] <- NA
-  last_test[!event & !is.na(event)] <- time_at_risk[!event & !is.na(event)]
-  tdist <- survfit(Surv(tm, event) ~ 1)
-  times <- seq(from=0,to=max_years*12, by=iv)
+  tm[!event & !is.na(event)] <- time_at_risk[!event & !is.na(event)]
+  tdist <- survfit(Surv(tm, event) ~ 1, weights=weights)
+  times <- seq(from=0,to=MAX_YEARS*12, by=iv)
   inds <- findInterval(times, tdist$time, all.inside = TRUE)
   test_surv <- tdist$surv[inds]
   test_surv_cond <- (test_surv - min(test_surv)) / (1-min(test_surv))
 
   # Calculate tau=P(TESTER) Taking into account censoring
-  po <- 1 - test_surv_cond[pmin(max_years*12-1, ceiling(time_at_risk[l_sub]) + 1) ]
+  et <- ever_test
+  et[tm >= time_at_risk & !is.na(tm >= time_at_risk)] <- FALSE
+  po <- 1 - test_surv_cond[pmin(MAX_YEARS*12-1, ceiling(time_at_risk) + 1) ]
   tau_lik <- function(tau) {
-    val <- et * log(tau * po) + (!et) * log(1-tau * po)
+    val <- (et * log(tau * po) + (!et) * log(1-tau * po)) * weights
     val[!is.finite(val)] <- NA
     sum(val, na.rm=TRUE)
   }
-  tau <- optimise(tau_lik,interval = c(0,1),maximum = TRUE)$maximum
+  tau <- optimise(tau_lik, interval = c(0,1), maximum = TRUE)$maximum
+
+  # Calculate competing risk survival function
+  aids_surv <- 1 - aids_dist(times)
+  surv <- test_surv_cond * aids_surv * tau + aids_surv * (1 - tau)
+
+  list(survival=surv,
+       times=times,
+       tau=tau,
+       test_surv_cond=test_surv_cond,
+       aids_surv=aids_surv)
+}
+
+
+.fit_dist_weibull <- function(last_test, last_upper, ever_test, weights, time_at_risk, aids_dist, initial_rate=1/14){
+
+  exact_time <- all(na.omit(last_test == last_upper))
+
+  #construct empirical distribution for TID | TESTER
+  miss_test <- is.na(last_test) | is.na(last_upper)
+  tm <- last_test
+  event <- !miss_test & last_test < time_at_risk
+  event[(ever_test | is.na(ever_test)) & miss_test] <- NA
+
+  if(!exact_time){
+    last_upper <- ifelse(!is.na(time_at_risk) & !is.na(last_upper) & time_at_risk < last_upper, time_at_risk, last_upper)
+  }
+
+  # Fit a weibull distribtion to get P(TSLT | TESTER)
+  weibull_lik <- function(scale, k, tau){
+    p <- function(x) suppressWarnings(pweibull(x, scale=scale,shape=k))
+    log_d <- function(x) suppressWarnings(dweibull(x, scale=scale,shape=k, log = TRUE))
+    if(exact_time){
+      lik <- sum((log_d(last_test[event]) + log(tau)) * weights[event], na.rm=TRUE)
+    }else{
+      lik <- sum((log(p(last_upper[event]) - p(last_test[event])) + log(tau)) * weights[event], na.rm=TRUE)
+    }
+    lik <- lik + sum( log((1 - p(time_at_risk[!event])) * tau + 1 - tau) * weights[!event], na.rm=TRUE )
+    -lik
+  }
+  opt <- optim(function(x)weibull_lik(x[1],x[2], x[3]),
+               par = c(1/initial_rate,1, .5),
+               lower=c(0,0,0),
+               upper=c(Inf, Inf, 1),
+               method="L-BFGS-B")
+  times <- seq(from=0,to=MAX_YEARS*12, by=iv)
+  test_surv_cond <- 1 - pweibull(times, scale=opt$par[1],shape=opt$par[2])
+  # Calculate tau=P(TESTER) Taking into account censoring
+  et <- ever_test
+  et[tm >= time_at_risk & !is.na(tm >= time_at_risk)] <- FALSE
+  po <- 1 - test_surv_cond[pmin(MAX_YEARS*12-1, ceiling(time_at_risk) + 1) ]
+  tau_lik <- function(tau) {
+    val <- (et * log(tau * po) + (!et) * log(1-tau * po)) * weights
+    val[!is.finite(val)] <- NA
+    sum(val, na.rm=TRUE)
+  }
+  tau <- optimise(tau_lik, interval = c(0,1), maximum = TRUE)$maximum
 
   # Calculate competing risk survival function
   aids_surv <- 1 - aids_dist(times)
@@ -114,6 +175,7 @@
 #' @export
 testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                               ever_test, last_test, last_upper = last_test,
+                              age=NULL, debut_age=0,
                               weights=rep(1, length(report_pos)) / length(report_pos),
                               distribution=c("weibull","gamma","empirical"), test_pop=c("negative","undiagnosed"),
                               ptruth=NULL, ptreated=NULL,
@@ -124,6 +186,13 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   treated <- low_viral | biomarker_art
   treated[is.na(treated)] <- FALSE
 
+  if(!is.null(age)){
+    time_at_risk <- (age - debut_age) * 12
+  }else{
+    time_at_risk <- rep(1000*12, length(last_test))
+  }
+
+  ptester <- as.vector(prop.table(wtd.table(ever_test[!hiv],weights=weights[!hiv]))[2])
 
   tab <- wtd.table(!report_pos, hiv, weights=weights)
 
@@ -136,20 +205,19 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
     ln_sub <- !hiv & !is.na(hiv)
   else
     ln_sub <- !report_pos & !is.na(report_pos) & hiv & !is.na(hiv) & !treated
-  ln_sub <- ln_sub & !is.na(last_upper) & !is.na(last_test) & !is.na(weights)
   if(distribution == "empirical"){
-    if(!all(last_test[ln_sub] == last_upper[ln_sub])){
+    if(!all(na.omit(last_test == last_upper))){
       stop("The empirical distribution can only be used for non-binned testing times.")
     }
-    m2 <- sum(last_test[ln_sub] * weights[ln_sub]) / sum(weights[ln_sub])
+    surv_dist <- .fit_dist_empirical(last_test[ln_sub], ever_test[ln_sub],
+                                     weights[ln_sub], time_at_risk[ln_sub], aids_dist)
   }else{
-    par <- .fit_dist(last_test[ln_sub], last_upper[ln_sub], weights[ln_sub], distribution)
-    m2 <- .mean_of_dist(par, distribution)
+    surv_dist <- .fit_dist_weibull(last_test[ln_sub], last_upper[ln_sub], ever_test[ln_sub],
+                                     weights[ln_sub], time_at_risk[ln_sub], aids_dist)
   }
-  # For those who test, time between infection and test is m2, for those who don't test,
-  # we assume diagnosis at AIDS, and use the natural history distribution
-  ptester <- as.vector(prop.table(wtd.table(ever_test[!hiv],weights=weights[!hiv]))[2])
-  tid <- m2 * ptester +  non_tester_tid * (1 - ptester)
+  m2 <- sum(surv_dist$test_surv_cond)
+  tid <- sum(surv_dist$survival)
+  ptester <- surv_dist$tau
 
   # Adjust for missreporting of HIV status
   tlie <- wtd.table(treated, !report_pos, weights = weights)
