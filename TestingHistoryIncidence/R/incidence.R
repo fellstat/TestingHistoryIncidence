@@ -1,55 +1,9 @@
 MAX_YEARS <- 200
 
-
-# Fits either a weibull or gamma distribution to possibly windowed data
-.fit_dist <- function(last_test, last_upper, weights, distribution, initial_rate=1/14){
-  #get counts for testing windows
-  test_window <- paste(last_test,last_upper,sep="_")
-  ln_count <- wtd.table(test_window, weights = weights)
-  ln_windows <- strsplit(names(ln_count),"_")
-  ln_lower <- as.numeric(sapply(ln_windows, function(x) x[1]))
-  ln_upper <- as.numeric(sapply(ln_windows, function(x) x[2]))
-  ln_count <- as.vector(ln_count)
-
-  #The data likelihood for time since last negative test
-  lik2 <- function(scale,k){
-
-    if(distribution == "weibull"){
-      p <- function(x) suppressWarnings(pweibull(x, scale=scale,shape=k))
-      log_d <- function(x) suppressWarnings(dweibull(x, scale=scale,shape=k, log = TRUE))
-    }else{
-      p <- function(x) suppressWarnings(pgamma(x, scale=scale,shape=k))
-      log_d <- function(x) suppressWarnings(dgamma(x, scale=scale,shape=k, log = TRUE))
-    }
-
-    result <- 0
-    n <- length(ln_count)
-    exact_time <- ln_upper == ln_lower
-    for(i in 1:n){
-      if(!exact_time[i]){
-        result <- result - ln_count[i] * log(p(ln_upper[i]) - p(ln_lower[i]))
-      }
-    }
-    result <- result - sum(ln_count[exact_time] * log_d(ln_upper[exact_time]) )
-    result
-  }
-  opt <- optim(function(x)lik2(x[1],x[2]),par = c(1/initial_rate,1))
-  opt$par
-}
-
-.mean_of_dist <- function(par, distribution){
-  if(distribution == "weibull"){
-    m2 <- par[1] * gamma(1 + 1/ par[2])
-  }else{
-    m2 <- par[1] * par[2]
-  }
-  m2
-}
-
-# Fits either a weibull or gamma distribution to possibly windowed data
+# Finds the empirical distribution survival distributions
 .fit_dist_empirical <- function(last_test, ever_test, weights, time_at_risk, aids_dist){
 
-  #construct empirical distribution for TID | TESTER
+  # Construct empirical distribution for TID | TESTER
   tm <- last_test
   event <- !is.na(tm) & tm < time_at_risk
   event[(ever_test | is.na(ever_test)) & is.na(tm)] <- NA
@@ -82,22 +36,23 @@ MAX_YEARS <- 200
        aids_surv=aids_surv)
 }
 
-
+# Fits a weibull distribution to possibly windowed data
 .fit_dist_weibull <- function(last_test, last_upper, ever_test, weights, time_at_risk, aids_dist, initial_rate=1/14){
 
   exact_time <- all(na.omit(last_test == last_upper))
 
-  #construct empirical distribution for TID | TESTER
   miss_test <- is.na(last_test) | is.na(last_upper)
   tm <- last_test
-  event <- !miss_test & last_test < time_at_risk
-  event[(ever_test | is.na(ever_test)) & miss_test] <- NA
+  #event <- !miss_test & last_test < time_at_risk
+  #event[(ever_test | is.na(ever_test)) & miss_test] <- NA
+  event <- ever_test
+  tm[!event | is.na(tm)] <- time_at_risk[!event | is.na(tm)]
 
   if(!exact_time){
     last_upper <- ifelse(!is.na(time_at_risk) & !is.na(last_upper) & time_at_risk < last_upper, time_at_risk, last_upper)
   }
 
-  # Fit a weibull distribtion to get P(TSLT | TESTER)
+  # Fit a weibull distribtion to get P(TID | TESTER)
   weibull_lik <- function(scale, k, tau){
     p <- function(x) suppressWarnings(pweibull(x, scale=scale,shape=k))
     log_d <- function(x) suppressWarnings(dweibull(x, scale=scale,shape=k, log = TRUE))
@@ -111,21 +66,22 @@ MAX_YEARS <- 200
   }
   opt <- optim(function(x)weibull_lik(x[1],x[2], x[3]),
                par = c(1/initial_rate,1, .5),
-               lower=c(0,0,0),
-               upper=c(Inf, Inf, 1),
+               lower=c(0,0,0) + .0000000001,
+               upper=c(Inf, Inf, 1 - .0000000001),
                method="L-BFGS-B")
   times <- seq(from=0,to=MAX_YEARS*12, by=iv)
   test_surv_cond <- 1 - pweibull(times, scale=opt$par[1],shape=opt$par[2])
+  tau <- opt$par[3]
   # Calculate tau=P(TESTER) Taking into account censoring
-  et <- ever_test
-  et[tm >= time_at_risk & !is.na(tm >= time_at_risk)] <- FALSE
-  po <- 1 - test_surv_cond[pmin(MAX_YEARS*12-1, ceiling(time_at_risk) + 1) ]
-  tau_lik <- function(tau) {
-    val <- (et * log(tau * po) + (!et) * log(1-tau * po)) * weights
-    val[!is.finite(val)] <- NA
-    sum(val, na.rm=TRUE)
-  }
-  tau <- optimise(tau_lik, interval = c(0,1), maximum = TRUE)$maximum
+  #et <- ever_test
+  #et[tm >= time_at_risk & !is.na(tm >= time_at_risk)] <- FALSE
+  #po <- 1 - test_surv_cond[pmin(MAX_YEARS*12-1, ceiling(time_at_risk) + 1) ]
+  #tau_lik <- function(tau) {
+  #  val <- (et * log(tau * po) + (!et) * log(1-tau * po)) * weights
+  #  val[!is.finite(val)] <- NA
+  #  sum(val, na.rm=TRUE)
+  #}
+  #tau <- optimise(tau_lik, interval = c(0,1), maximum = TRUE)$maximum
 
   # Calculate competing risk survival function
   aids_surv <- 1 - aids_dist(times)
@@ -177,26 +133,106 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                               ever_test, last_test, last_upper = last_test,
                               age=NULL, debut_age=0,
                               weights=rep(1, length(report_pos)) / length(report_pos),
-                              distribution=c("weibull","gamma","empirical"), test_pop=c("negative","undiagnosed"),
+                              distribution=c("weibull","empirical"), test_pop=c("negative","undiagnosed"),
                               ptruth=NULL, ptreated=NULL,
-                              non_tester_tid= 123.824){
+                              aids_dist = function(x) pweibull(x / 12, scale=1/0.086, shape=2.516),
+                              age_breaks=NULL,
+                              uniform_missreport=FALSE){
+
+
   test_pop <- match.arg(test_pop)
   distribution <- match.arg(distribution)
 
   treated <- low_viral | biomarker_art
   treated[is.na(treated)] <- FALSE
 
+  if(!is.null(age_breaks)){
+    tlie <- wtd.table(treated, !report_pos, weights = weights)
+    if(is.null(ptruth) & uniform_missreport)
+      ptruth <- tlie[2,1] / sum(tlie[2,])
+    if(is.null(ptreated) & uniform_missreport)
+      ptreated <- tlie[2,2] / sum(tlie[,2])
+
+    age_breaks <- sort(age_breaks)
+    sub_estimates <- list()
+    lower <- c()
+    upper <- c()
+    mu <- c()
+    k <- length(age_breaks) + 1
+    for(i in 1:k){
+      ua <- if(i > length(age_breaks)) Inf else age_breaks[i]
+      la <- if(i == 1) debut_age else age_breaks[i-1]
+      sub <- !is.na(age) & age < ua & age >= la
+      lower[i] <- la
+      upper[i] <- ua
+      mu[i] <- sum(sub * weights, na.rm=TRUE) / sum((!is.na(age)) * weights, na.rm=TRUE)
+      if(sum(sub) == 0){
+        stop("No observations in age group")
+      }
+      ti <- testing_incidence(report_pos[sub], biomarker_art[sub], low_viral[sub], hiv[sub],
+                                    ever_test[sub], last_test[sub], last_upper[sub],
+                                    age[sub], debut_age,
+                                    weights[sub],
+                                    distribution, test_pop,
+                                    ptruth=ptruth, ptreated=ptreated,
+                                    aids_dist,
+                                    age_breaks=NULL)
+      sub_estimates[[i]] <- ti
+    }
+    ph <- sapply(sub_estimates, function(x) x$phiv)
+    pu <- sapply(sub_estimates, function(x) x$pundiag)
+    lower <- lower * 12
+    upper <- pmin(MAX_YEARS, upper) * 12
+    Q <- matrix(0,nrow=k,ncol=k)
+    for(i in 1:k){
+      for(j in i:k){
+        if(length(sub_estimates[[i]]) == 1)
+          next
+        tid <- attr(sub_estimates[[i]], "survival_distribution")$survival
+        cumtid <- c(0, cumsum(tid))
+        asub <- round(age[!is.na(age) & age < upper[i] / 12 & age >= lower[i] / 12] * 12)
+        int <- cumtid[upper[j] - asub] - cumtid[pmax(1, lower[j] - asub)]
+        Q[j,i] <- mean(int)
+      }
+    }
+    #B <- sweep(Q, 1, (1 - ph) * mu, "*")
+    c <- pu * ph * mu
+    incidence <- solve(Q / 12) %*% c / ((1-ph)*mu)
+    transmission <- incidence * (1 - ph) / ph
+    result <- do.call(rbind, sub_estimates)
+    result$incidence <- incidence
+    result$transmission <- transmission
+    pooled_inc <- sum(result$incidence * mu * (1 - result$phiv)) / sum(mu * (1 - result$phiv))
+    pooled_phiv <- sum(result$phiv * mu)
+    pooled_trans <- pooled_inc * (1 - pooled_phiv) / pooled_phiv
+    #all[2] <- all[1] * (1 - all[6]) / all[6]
+    result <- rbind(result, c(pooled_inc, pooled_trans, rep(NA, ncol(result) - 2)))
+    attr(result, "Q") <- Q
+    attr(result, "c") <- c
+    attr(result, "lower") <- lower
+    attr(result, "upper") <- upper
+    attr(result, "survival_distribution") <- lapply(sub_estimates,
+                                                    function(x) attr(x, "survival_distribution"))
+    upper[upper == MAX_YEARS * 12] <- Inf
+    row.names(result) <- c(paste0("[", lower / 12, ", ", upper / 12, ")"), "pooled")
+    class(result) <- c("test_inc","data.frame")
+    return(result)
+  }
+
   if(!is.null(age)){
     time_at_risk <- (age - debut_age) * 12
   }else{
-    time_at_risk <- rep(1000*12, length(last_test))
+    time_at_risk <- rep(MAX_YEARS*12, length(last_test))
   }
 
   ptester <- as.vector(prop.table(wtd.table(ever_test[!hiv],weights=weights[!hiv]))[2])
 
   tab <- wtd.table(!report_pos, hiv, weights=weights)
-
   psay_undiag <- tab[2,2] / sum(tab[,2])
+
+  # proportion that say undiagnosed and arn't observed to be treated
+  tab <- wtd.table(!report_pos & !treated, hiv, weights=weights)
+  ppos_undiag <- tab[2,2] / sum(tab[,2])
 
   phiv <- as.vector(prop.table(wtd.table(hiv, weights=weights))[2])
 
@@ -226,9 +262,8 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   if(is.null(ptreated))
     ptreated <- tlie[2,2] / sum(tlie[,2])
   pmiss_class <- 1 - (ptruth + ptreated * ( 1 - ptruth))
-
-  pundiag <- (psay_undiag - pmiss_class) / (1 - pmiss_class)
-
+  #pundiag <- (ppos_undiag - pmiss_class) / (1 - pmiss_class)
+  pundiag <- 1 - (1 - ppos_undiag) / (ptruth + ptreated * ( 1 - ptruth))
   # Calculate incidence
   tid <- tid / 12
   inc <- pundiag * phiv / (tid * (1-phiv))
@@ -246,8 +281,10 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                  mean_time_since_last_test=m2 / 12,
                  tid=tid,
                  ptruth=ptruth,
-                 ptreated=ptreated))
+                 ptreated=ptreated,
+                 n=length(report_pos)))
   row.names(result) <- "estimate"
+  attr(result, "survival_distribution") <- surv_dist
   class(result) <- c("test_inc","data.frame")
   result
 }
