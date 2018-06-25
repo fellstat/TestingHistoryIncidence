@@ -8,8 +8,8 @@ MAX_YEARS <- 200
   event <- !is.na(tm) & tm < time_at_risk
   event[(ever_test | is.na(ever_test)) & is.na(tm)] <- NA
   tm[!event & !is.na(event)] <- time_at_risk[!event & !is.na(event)]
-  tdist <- survfit(Surv(tm, event) ~ 1, weights=weights)
-  times <- seq(from=0,to=MAX_YEARS*12, by=iv)
+  tdist <- survival::survfit(survival::Surv(tm, event) ~ 1, weights=weights)
+  times <- seq(from=0,to=MAX_YEARS*12, by=1)
   inds <- findInterval(times, tdist$time, all.inside = TRUE)
   test_surv <- tdist$surv[inds]
   test_surv_cond <- (test_surv - min(test_surv)) / (1-min(test_surv))
@@ -69,7 +69,7 @@ MAX_YEARS <- 200
                lower=c(0,0,0) + .0000000001,
                upper=c(Inf, Inf, 1 - .0000000001),
                method="L-BFGS-B")
-  times <- seq(from=0,to=MAX_YEARS*12, by=iv)
+  times <- seq(from=0,to=MAX_YEARS*12, by=1)
   test_surv_cond <- 1 - pweibull(times, scale=opt$par[1],shape=opt$par[2])
   tau <- opt$par[3]
   # Calculate tau=P(TESTER) Taking into account censoring
