@@ -2,45 +2,27 @@
 % Please edit documentation in R/incidence.R
 \name{bootstrap_incidence}
 \alias{bootstrap_incidence}
-\title{Bootstrap variance for incidence}
+\title{Calculates bootstrap variability estimates}
 \usage{
-bootstrap_incidence(report_hiv_pos, biomarker_art, low_viral, hiv,
-  last_hiv_lower, last_hiv_upper, ever_hiv_test, replicates = 5000,
-  frame = NULL, id_formula = NULL, strata_formula = NULL,
-  weights_formula = NULL, type = "mrbbootstrap", show_progress = TRUE,
-  ...)
+bootstrap_incidence(incidence, nrep = 1000, rep_weights = NULL,
+  type = c("BRR", "Fay", "JK1", "JKn", "bootstrap", "other"),
+  combined_weights = TRUE, show_progress = TRUE, ...)
 }
 \arguments{
-\item{report_hiv_pos}{A logical vector indicating whether each subject reported a positive hiv status}
+\item{incidence}{a test_inc object returned by testing_incidence.}
 
-\item{biomarker_art}{A logical vector indicating whether ART antibodies are present. NA if test not done.}
+\item{nrep}{The number of bootstrap replications (ignored if rep_weights is not null.}
 
-\item{low_viral}{A logical vector indicating whether viral load is <=1000}
+\item{rep_weights}{A dataframe of replicate weights.}
 
-\item{hiv}{A logical vector indicating hiv status}
+\item{type}{The type of resampling weights. See svrepdesign.}
 
-\item{last_hiv_lower}{A numeric vector indicating the lower bound of the months since last hiv test bin in months.}
+\item{combined_weights}{TRUE if the rep_weights already include the sampling weights. This is usually the case.}
 
-\item{last_hiv_upper}{A numeric vector indicating the upper bound of the months since last hiv test bin in months.}
+\item{show_progress}{print bootstrap progress}
 
-\item{ever_hiv_test}{A logical vector indicating whether the subject had eer had an hiv test.}
-
-\item{replicates}{The number of bootstrap replicated}
-
-\item{frame}{a dataframe conatining the variables needed for id_formula, strata_formula and wieghts_formula}
-
-\item{id_formula}{a survey formula specifying the unit of sampling}
-
-\item{strata_formula}{a survey formula specifying the strata structure}
-
-\item{weights_formula}{a survey formula specifying the weights}
-
-\item{type}{The type of survey bootstrap}
-
-\item{show_progress}{print progress}
-
-\item{...}{additional parameters for testing_incidence}
+\item{...}{additional parameters to svrepdesign.}
 }
 \description{
-Bootstrap variance for incidence
+Calculates bootstrap variability estimates
 }

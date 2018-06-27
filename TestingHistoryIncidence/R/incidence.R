@@ -46,10 +46,11 @@ MAX_YEARS <- 200
   #event <- !miss_test & last_test < time_at_risk
   #event[(ever_test | is.na(ever_test)) & miss_test] <- NA
   event <- ever_test
-  tm[!event | is.na(tm)] <- time_at_risk[!event | is.na(tm)]
+  tm[(!event | is.na(tm)) & !is.na(event)] <- time_at_risk[(!event | is.na(tm)) & !is.na(event)]
 
   if(!exact_time){
     last_upper <- ifelse(!is.na(time_at_risk) & !is.na(last_upper) & time_at_risk < last_upper, time_at_risk, last_upper)
+    last_upper[!is.na(last_upper) & last_upper <= last_test] <- last_test[!is.na(last_upper) & last_upper <= last_test] + 1
   }
 
   # Fit a weibull distribtion to get P(TID | TESTER)
@@ -72,16 +73,6 @@ MAX_YEARS <- 200
   times <- seq(from=0,to=MAX_YEARS*12, by=1)
   test_surv_cond <- 1 - pweibull(times, scale=opt$par[1],shape=opt$par[2])
   tau <- opt$par[3]
-  # Calculate tau=P(TESTER) Taking into account censoring
-  #et <- ever_test
-  #et[tm >= time_at_risk & !is.na(tm >= time_at_risk)] <- FALSE
-  #po <- 1 - test_surv_cond[pmin(MAX_YEARS*12-1, ceiling(time_at_risk) + 1) ]
-  #tau_lik <- function(tau) {
-  #  val <- (et * log(tau * po) + (!et) * log(1-tau * po)) * weights
-  #  val[!is.finite(val)] <- NA
-  #  sum(val, na.rm=TRUE)
-  #}
-  #tau <- optimise(tau_lik, interval = c(0,1), maximum = TRUE)$maximum
 
   # Calculate competing risk survival function
   aids_surv <- 1 - aids_dist(times)
@@ -102,16 +93,20 @@ MAX_YEARS <- 200
 #' @param hiv A logical vector indicating hiv status
 #' @param ever_test A logical vector indicating whether the subject had eer had an hiv test.
 #' @param last_test A numeric vector indicating the time since last hiv test in months. If testing times are binned into buckets, this is the lower bound of the months since last hiv test.
+#' @param age A numeric vector indicating the age of each subject in years.
+#' @param debut_age The age of debut into the at risk population.
 #' @param last_upper A numeric vector indicating the upper bound of the months since last hiv test for each individual.
 #' @param weights Survey weights
-#' @param distribution Either "empirical", "weibull" or "gamma." This controls the family of distribution used to
+#' @param distribution Either "empirical", or "weibull." This controls the family of distribution used to
 #' model time since last test. "empirical" may not be used with binned testing times.
 #' @param test_pop If "negative', the time since last negative is calculated amoung the HIV- population, otherwise it is calculated of those who report being undiagnosed.
 #' @param ptruth The proportion of the diagnosed hiv positive population that would report being hiv positive.
 #' If NULL, this is estimated using biomarker_art and low_viral.
 #' @param ptreated The proportion of hiv positive individuals with postive biomarker_art or low_viral.
+#' @param age_breaks age stratification break points.
 #' If NULL, this is estimated from the data.
-#' @param non_tester_tid mean nummber of months between infection and diagnosis for non_testers.
+#' @param aids_dist The distribution function of time from infection to aids in months.
+#' @param uniform_missreport If true, the rate of missreporting of undiagnosed status is conisuered uniform over the age strata.
 #' @details
 #' When time since last test is grouped into bins, last_upper should always be greater than last_test,
 #'  and may be infinite (e.g. test was  > 24 months ago). Those with missing data or who never had an hiv test
@@ -143,6 +138,17 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   test_pop <- match.arg(test_pop)
   distribution <- match.arg(distribution)
 
+  # Function Parameters
+  params <- list(report_pos=report_pos, biomarker_art=biomarker_art, low_viral=low_viral, hiv=hiv,
+                 ever_test=ever_test, last_test=last_test, last_upper=last_upper,
+                 age=age, debut_age=debut_age,
+                 weights=weights,
+                 distribution=distribution, test_pop=test_pop,
+                 ptruth=ptruth, ptreated=ptreated,
+                 aids_dist=aids_dist,
+                 age_breaks=age_breaks,
+                 uniform_missreport=uniform_missreport)
+
   treated <- low_viral | biomarker_art
   treated[is.na(treated)] <- FALSE
 
@@ -151,7 +157,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
     if(is.null(ptruth) & uniform_missreport)
       ptruth <- tlie[2,1] / sum(tlie[2,])
     if(is.null(ptreated) & uniform_missreport)
-      ptreated <- tlie[2,2] / sum(tlie[,2])
+      ptreated <- tlie[2,1] / sum(tlie[,1])
 
     age_breaks <- sort(age_breaks)
     sub_estimates <- list()
@@ -215,6 +221,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                                                     function(x) attr(x, "survival_distribution"))
     upper[upper == MAX_YEARS * 12] <- Inf
     row.names(result) <- c(paste0("[", lower / 12, ", ", upper / 12, ")"), "pooled")
+    attr(result, "params") <- params
     class(result) <- c("test_inc","data.frame")
     return(result)
   }
@@ -260,7 +267,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   if(is.null(ptruth))
     ptruth <- tlie[2,1] / sum(tlie[2,])
   if(is.null(ptreated))
-    ptreated <- tlie[2,2] / sum(tlie[,2])
+    ptreated <- tlie[2,1] / sum(tlie[,1])
   pmiss_class <- 1 - (ptruth + ptreated * ( 1 - ptruth))
   #pundiag <- (ppos_undiag - pmiss_class) / (1 - pmiss_class)
   pundiag <- 1 - (1 - ppos_undiag) / (ptruth + ptreated * ( 1 - ptruth))
@@ -268,9 +275,10 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   tid <- tid / 12
   inc <- pundiag * phiv / (tid * (1-phiv))
 
-  #Calculate transmission rate
+  # Calculate transmission rate
   trans <- pundiag / tid
 
+  # Format return object
   result <- data.frame(list(incidence=inc,
                  transmission=trans,
                  pundiag=pundiag,
@@ -285,174 +293,202 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                  n=length(report_pos)))
   row.names(result) <- "estimate"
   attr(result, "survival_distribution") <- surv_dist
+  attr(result, "params") <- params
   class(result) <- c("test_inc","data.frame")
   result
 }
 
 
-#' Perorm a survey bootstrap
-#' @param design an object of class svydesign
-#' @param fun a function taking a dataframe as a parameter
-#' @param show_progress print progress
-#' @param ... additional parameters passed to as.srvrepdesign
-#' @return
-#' a list with class boot_est containing
-#' 'value': the value of the function applied to dat.
-#' 'var': the boostrap variance.
-#' 'replicates': The bootstrap values of fun.
-#' 'nrep': the number of replicates.
-#' @examples
-#' library(survey)
-#' data(api,package="survey")
-#' ## one-stage cluster sample
-#' dclus1<-svydesign(id=~dnum, weights=~pw, data=apiclus1, fpc=~fpc)
-#' ## convert to JK1 jackknife
-#' rclus1<-as.svrepdesign(dclus1)
-#' ## convert to bootstrap
-#' set.seed(1)
-#' bclus1<-as.svrepdesign(dclus1,type="bootstrap", replicates=100)
-#' attr(svymean(~api00, bclus1),"var")
-#' set.seed(1)
-#' survey_bootstrap(dclus1, fun=function(dat, wts) {sum(wts*dat$api00) / sum(wts)},
-#'   type="bootstrap", replicates=100)$var
+#' Calculates bootstrap variability estimates
+#' @param incidence a test_inc object returned by testing_incidence.
+#' @param nrep The number of bootstrap replications (ignored if rep_weights is not null.
+#' @param rep_weights A dataframe of replicate weights.
+#' @param type The type of resampling weights. See svrepdesign.
+#' @param combined_weights TRUE if the rep_weights already include the sampling weights. This is usually the case.
+#' @param show_progress print bootstrap progress
+#' @param ... additional parameters to svrepdesign.
 #' @export
-survey_bootstrap <- function(design, fun, show_progress=TRUE, ...){
-  dat <- design$variables
-  weights <- weights(design)
+bootstrap_incidence <- function(incidence,
+                                nrep=1000,
+                                rep_weights=NULL,
+                                type=c("BRR", "Fay", "JK1","JKn","bootstrap","other"),
+                                combined_weights=TRUE,
+                                show_progress=TRUE, ...){
+  type <- match.arg(type)
 
-  coef <- fun(dat, weights)
+  params <- attr(incidence, "params")
+  debut_age <- params$debut_age
+  distribution <- params$distribution
+  test_pop <- params$test_pop
+  ptruth <- params$ptruth
+  ptreated <- params$ptreated
+  aids_dist <- params$aids_dist
+  age_breaks <- params$age_breaks
+  uniform_missreport <- params$uniform_missreport
 
-  des1 <- as.svrepdesign(design, compress=FALSE, ...)
-  scale <- des1$scale
-  rscales <- des1$rscales
-  mse <- des1$mse
 
-  rep_weights <- weights(des1)
-  nrep <- ncol(rep_weights)
-  estimates <- matrix(NA, nrow=nrep, ncol=length(coef))
-  for(i in 1:nrep){
-    if(show_progress)
-      cat(".")
-    estimates[i,] <- fun(dat, weights * rep_weights[,i])
+  dat <- as.data.frame(params[c('report_pos', 'biomarker_art', 'low_viral', 'hiv',
+                                'ever_test', 'last_test', 'last_upper',
+                                'age','weights')])
+  fun <- function(data, weights=NULL){
+    if(!is.null(weights))
+      data$weights <- weights
+    with(data, testing_incidence(report_pos=report_pos, biomarker_art=biomarker_art,
+                                 low_viral=low_viral, hiv=hiv, ever_test=ever_test,
+                                 last_test=last_test, last_upper=last_upper, weights=weights,
+                                 age=age, debut_age=debut_age, distribution = distribution,
+                                 age_breaks=age_breaks,
+                                 test_pop=test_pop, uniform_missreport = uniform_missreport))
   }
-  if(show_progress)
-    cat("\n")
-  vars <- apply(estimates, 2, function(x) svrVar(x, scale, rscales, mse=mse,coef=coef))
-  bb <- list(value=coef,
-       var = vars,
-       replicates=estimates,
-       nrep=nrep)
-  class(bb) <- c("boot_est","list")
-  bb
-}
-
-#' Bootstrap variance for incidence
-#' @param frame a dataframe conatining the variables needed for id_formula, strata_formula and wieghts_formula
-#' @param strata_formula a survey formula specifying the strata structure
-#' @param weights_formula a survey formula specifying the weights
-#' @param id_formula a survey formula specifying the unit of sampling
-#' @param report_pos A logical vector indicating whether each subject reported a positive hiv status
-#' @param biomarker_art A logical vector indicating whether ART antibodies are present. NA if test not done.
-#' @param low_viral A logical vector indicating whether viral load is <=1000
-#' @param hiv A logical vector indicating hiv status
-#' @param last_test A numeric vector indicating the lower bound of the months since last hiv test bin in months.
-#' @param last_upper A numeric vector indicating the upper bound of the months since last hiv test bin in months.
-#' @param ever_test A logical vector indicating whether the subject had eer had an hiv test.
-#' @param replicates The number of bootstrap replicated
-#' @param type The type of survey bootstrap
-#' @param show_progress print progress
-#' @param ... additional parameters for testing_incidence
-#' @export
-bootstrap_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
-                                last_test, last_upper, ever_test, replicates=5000,
-                                frame=NULL, id_formula=NULL, strata_formula=NULL, weights_formula=NULL, type="mrbbootstrap", show_progress=TRUE, ...){
-  if(is.null(frame) && is.null(id_formula) && is.null(strata_formula) && is.null(weights_formula)){
-    dat <- data.frame(report_pos,
-      biomarker_art,
-      low_viral,
-      hiv,
-      last_test,
-      last_upper,
-      ever_test,
-      weights = rep(1,length(report_pos))
-      )
-    bb <- srs_bootstrap(dat,
-                           fun=function(dat) unlist(testing_incidence(dat$report_pos, dat$biomarker_art, dat$low_viral, dat$hiv,
-                                                                    dat$last_test, dat$last_upper, dat$ever_test, dat$weights, ...)),
-                           replicates=replicates,
-                        show_progress=show_progress)
+  if(is.null(rep_weights)){
+    result <- .srs_bootstrap(dat, fun, nrep=nrep, show_progress=show_progress)
   }else{
-    include <- rowSums(is.na(frame)) == 0
-    frame$report_pos <- report_pos
-    frame$biomarker_art <- biomarker_art
-    frame$low_viral <- low_viral
-    frame$hiv <- hiv
-    frame$last_test <- last_test
-    frame$last_upper <- last_upper
-    frame$ever_test <- ever_test
-
-    frame <- frame[include,]
-    des <- svydesign(ids = id_formula, strata=strata_formula, weights =weights_formula, data=frame)
-    bb <- survey_bootstrap(des,
-                           fun=function(dat, wts) {
-                             inc <- testing_incidence(dat$report_pos, dat$biomarker_art,
-                                                      dat$low_viral, dat$hiv, dat$last_test,
-                                                      dat$last_upper, dat$ever_test,
-                                                      wts, ...)
-                             unlist(inc)
-                           },
-                           show_progress=show_progress,
-                           type=type,
-                           replicates=replicates)
+    result <- .replicate_bootstrap(dat, dat$weights, rep_weights, fun, type=type,
+                                  combined_weights = combined_weights, show_progress=show_progress, ...)
   }
-  bb
+  result
 }
 
-#' Performs a bootstrap assuming a simple random sample
-#' @param dat a data.frame
-#' @param fun a function taking a dataframe as a parameter
-#' @param replicates the number of replicates
-#' @param show_progress print progress
-#' @return
-#' a list with class boot_est containing
-#' 'value': the value of the function applied to dat.
-#' 'var': the boostrap variance.
-#' 'replicates': The bootstrap values of fun.
-#' 'nrep': the number of replicates.
-#' @examples
-#' df <- data.frame(a=rnorm(100))
-#' srs_bootstrap(df, colMeans,replicates=100)$var
-#' @export
-srs_bootstrap <- function(dat, fun, replicates=1000, show_progress=TRUE){
-  value <- fun(dat)
+
+# Performs a bootstrap assuming a simple random sample
+# @param dat a data.frame
+# @param fun a function taking a dataframe as a parameter
+# @param nrep the number of replicates
+# @param show_progress print progress
+.srs_bootstrap <- function(dat, fun, nrep=1000, show_progress=TRUE){
+  value <- as.matrix(fun(dat))
   n <- nrow(dat)
-  estimates <- matrix(NA, nrow=replicates, ncol=length(value))
-  for(i in 1:replicates){
+  nr <- nrow(value)
+  nc <- ncol(value)
+
+  errors <- list()
+  estimates <- array(NA, dim=c(nr, nc, nrep))
+  for(i in 1:nrep){
     if(show_progress)
       cat(".")
     samp <- sample.int(n, n, replace=TRUE)
     boot <- dat[samp, , drop=FALSE]
-    estimates[i,] <- fun(boot)
+    val <- try(as.matrix(fun(boot)))
+    if(!inherits(val, "try-error"))
+      estimates[,,i] <- as.matrix(fun(boot))
+    else
+      errors[[length(errors) + 1]] <- val
   }
   if(show_progress)
     cat("\n")
+  vars <- matrix(NA,nrow=nr,ncol=nc)
+  for(i in 1:nr){
+    for(j in 1:nc){
+      if(!all(is.na(estimates[i,j,])))
+        vars[i,j] <- var(estimates[i,j,], na.rm=TRUE)
+    }
+  }
   bb <- list(value=value,
-       var=diag(var(estimates)),
-       replicates=estimates,
-       nrep=replicates)
-  class(bb) <- c("boot_est","list")
+             var = vars,
+             replicates=estimates,
+             nrep=nrep,
+             errors=errors)
+  class(bb) <- c("inc_boot_est","list")
+  bb
+}
+
+# Performs bootstrap variance estimation using replicate weights
+# @param dat a dataframe
+# @param weights the survey wieghts
+# @param rep_weights a dataframe of replicate wieghts
+# @param fun The function to be applied. takes a data.frame and a vector of wieghts as parameters, and returns a matrix
+# @param type The type of resampling weights. See svrepdesign.
+# @param combined_weights TRUE if the rep_weights already include the sampling weights. This is usually the case.
+# @param show_progress print bootstrap progress
+# @param ... additional parameters to svrepdesign.
+.replicate_bootstrap <- function(dat, weights, rep_weights, fun,
+                                type=c("BRR", "Fay", "JK1","JKn","bootstrap","other"),
+                                combined_weights=TRUE,
+                                show_progress=TRUE, ...){
+  values <- as.matrix(fun(dat, weights))
+
+  type <- match.arg(type)
+  not_miss <- (rowSums(is.na(rep_weights)) + is.na(weights)) < 0.5
+  dat <- dat[not_miss,]
+  weights <- weights[not_miss]
+  rep_weights <- rep_weights[not_miss,]
+
+  nr <- nrow(values)
+  nc <- ncol(values)
+
+  rep_design <- survey::svrepdesign(repweights=rep_weights,weights=weights,
+                                    data=dat,
+                                    combined.weights=combined_weights,
+                                    type=type, ...)
+  scale <- rep_design$scale
+  rscales <- rep_design$rscales
+  mse <- rep_design$mse
+
+  rep_weights <- weights(rep_design)
+  nrep <- ncol(rep_weights)
+
+  errors <- list()
+  estimates <- array(NA, dim=c(nr, nc, nrep))
+  for(i in 1:nrep){
+    if(show_progress)
+      cat(".")
+    val <- try(as.matrix(fun(dat, rep_weights[,i])))
+    if(!inherits(val, "try-error"))
+      estimates[,,i] <- as.matrix(fun(dat, rep_weights[,i]))
+    else
+      errors[[length(errors) + 1]] <- val
+  }
+  if(show_progress)
+    cat("\n")
+  vars <- matrix(NA,nrow=nr,ncol=nc)
+  for(i in 1:nr){
+    for(j in 1:nc){
+      if(!all(is.na(estimates[i,j,])))
+        vars[i,j] <- svrVar(estimates[i,j,], scale, rscales, mse=mse,coef=values[i,j])
+    }
+  }
+  bb <- list(value=values,
+             var = vars,
+             replicates=estimates,
+             nrep=nrep,
+             errors=errors)
+  class(bb) <- c("inc_boot_est","list")
   bb
 }
 
 #' print bootstrap
-#' @param x a boot_est object
-#' @param probs A list of quantiles for the bootstrap
+#' @param x a inc_boot_est object
+#' @param ... additional parameters for summary.inc_boot_est
+#' @export
+print.inc_boot_est <- function(x, ...){
+  res <- summary(x,...)
+  print(res)
+}
+
+#' summary of incidence bootstrap
+#' @param object a inc_boot_est object
+#' @param conf_level confidence level for intervals
 #' @param ... additional parameters for print.data.frame
 #' @export
-print.boot_est <- function(x,probs=c(.025,.975), ...){
-  res <- data.frame(value=x$value,
-                    se=sqrt(x$var))
-  res <- cbind(res,t(apply(x$replicates, 2, quantile, probs=probs)))
-  print(res, ...)
+summary.inc_boot_est <- function(object, conf_level=.95, ...){
+  cival <- qnorm(1 - (1 - conf_level) / 2)
+
+  val <- object$value[,1]
+  v <- object$var[,1]
+  res <- data.frame(incidence=val,
+                    se=sqrt(v),
+                    ci_lower=val - cival * sqrt(v),
+                    ci_upper=val + cival * sqrt(v))
+
+  val <- object$value[,2]
+  v <- object$var[,2]
+  res2 <- data.frame(transmission=val,
+                     se=sqrt(v),
+                     ci_lower=val - cival * sqrt(v),
+                     ci_upper=val + cival * sqrt(v))
+  #res <- cbind(res,res2,x$value[,-c(1,2), drop=FALSE])
+  res <- cbind(res,res2)
+  res
 }
+
 
