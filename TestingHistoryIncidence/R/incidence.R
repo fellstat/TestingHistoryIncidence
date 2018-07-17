@@ -43,26 +43,15 @@ MAX_YEARS <- 200
 
   miss_test <- is.na(last_test) | is.na(last_upper)
   time_at_risk[time_at_risk == 0] <- 1
-  #tm <- last_test
-  #event <- !miss_test & last_test < time_at_risk
-  #event[(ever_test | is.na(ever_test)) & miss_test] <- NA
   event <- ever_test
   censored <- last_test > time_at_risk & !is.na(last_test) | is.na(time_at_risk)
   event[censored] <- FALSE
   last_upper[censored] <- last_test[censored] <- NA
-  #tm[(!event | is.na(tm)) & !is.na(event)] <- time_at_risk[(!event | is.na(tm)) & !is.na(event)]
-  #browser()
+
   if(!exact_time){
     last_upper <- ifelse(!is.na(time_at_risk) & !is.na(last_upper) & time_at_risk < last_upper, time_at_risk, last_upper)
     last_upper[!is.na(last_upper) & last_upper <= last_test] <- last_test[!is.na(last_upper) & last_upper <= last_test] + 1
-  }#else{
-  #  tm <- last_test
-  #  tm[censored & !is.na(last_test) ] <- time_at_risk[censored & !is.na(last_test) ]
-  #  tdist <- survival::survreg(survival::Surv(tm, event) ~ 1, weights=weights,dist="weibull")
-  #  shape <- 1/exp(tdist$icoef[2])
-  #  scale <- exp(tdist$coefficients)
-  #
-  #}
+  }
 
   # Fit a weibull distribtion to get P(TID | TESTER)
   weibull_lik <- function(scale, k, tau){
@@ -80,7 +69,7 @@ MAX_YEARS <- 200
     lik <- max(-.Machine$double.xmax/10, min(.Machine$double.xmax/10, lik))
     -lik
   }
-  #browser()
+
   opt <- optim(function(x)weibull_lik(x[1],x[2], x[3]),
                par = c(1/initial_rate,1, .5),
                lower=c(0,0,0) + .0000000001,
@@ -101,6 +90,84 @@ MAX_YEARS <- 200
        aids_surv=aids_surv)
 }
 
+.assert <- function(..., msg=NULL){
+  if(is.null(msg)){
+    msg <- paste(deparse(substitute(...)),"is not true.")
+  }
+  tr <- try(stopifnot(...))
+  if(inherits(tr, "try-error"))
+    stop(msg)
+
+}
+
+#checks testing_incidence parameters and throws errors if they are invalid
+.check_params <- function(report_pos, biomarker_art, low_viral, hiv,
+                          ever_test, last_test, last_upper,
+                          age, testing_debut_age,
+                          weights,distribution, test_pop,
+                          ptruth, ptreated,
+                          aids_dist,
+                          age_breaks, subset, uniform_missreport){
+  n <- length(report_pos)
+  n1 <- length(biomarker_art)
+  .assert(n == n1, msg = paste0("biomarker_art is of length ", n1, " expecting ", n))
+  n1 <- length(low_viral)
+  .assert(n == n1, msg = paste0("low_viral is of length ", n1, " expecting ", n))
+  n1 <- length(hiv)
+  .assert(n == n1, msg = paste0("hiv is of length ", n1, " expecting ", n))
+  n1 <- length(ever_test)
+  .assert(n == n1, msg = paste0("ever_test is of length ", n1, " expecting ", n))
+  n1 <- length(last_test)
+  .assert(n == n1, msg = paste0("last_test is of length ", n1, " expecting ", n))
+  n1 <- length(last_upper)
+  .assert(n == n1, msg = paste0("last_upper is of length ", n1, " expecting ", n))
+  if(!is.null(age)){
+    n1 <- length(age)
+    .assert(n == n1, msg = paste0("age is of length ", n1, " expecting ", n))
+  }
+  if(!is.null(subset)){
+    .assert(is.logical(subset), length(subset) == n)
+    if(uniform_missreport && (is.null(ptruth) || is.null(ptreated))){
+      has_trt <- sum((low_viral | biomarker_art) * weights, na.rm=TRUE) > 0
+      .assert(has_trt, msg="Unable to estimate missreporting as no treated cases are present")
+    }
+    subset[is.na(subset)] <- FALSE
+    report_pos <- report_pos[subset]
+    biomarker_art <- biomarker_art[subset]
+    low_viral <- low_viral[subset]
+    hiv <- hiv[subset]
+    ever_test <- ever_test[subset]
+    last_test <- last_test[subset]
+    last_upper <- last_upper[subset]
+    age <- age[subset]
+    weights <- weights[subset]
+    if(!uniform_missreport && (is.null(ptruth) || is.null(ptreated))){
+      has_trt <- sum((low_viral | biomarker_art) * weights, na.rm=TRUE) > 0
+      .assert(has_trt, msg="Unable to estimate missreporting as no treated cases are present. Try using uniform_missreport=TRUE.")
+    }
+  }else{
+    if(is.null(ptruth) || is.null(ptreated)){
+      has_trt <- sum((low_viral | biomarker_art) * weights, na.rm=TRUE) > 0
+      .assert(has_trt, msg="Unable to estimate missreporting as no treated cases are present.")
+    }
+  }
+  tbl <- wtd.table(report_pos, weights=weights)
+  .assert(length(tbl) == 2 & all(tbl > 0), msg="report_pos should have two unique values.")
+
+  tbl <- wtd.table(hiv, weights=weights)
+  .assert(length(tbl) == 2 & all(tbl > 0), msg="hiv should have two unique values.")
+
+  tbl <- wtd.table(ever_test, weights=weights)
+  .assert(length(tbl) == 2 & all(tbl > 0), msg="ever_test should have two unique values.")
+
+  .assert(all(na.omit(last_upper >= last_test)))
+  .assert(all(na.omit(age >= testing_debut_age)))
+  .assert(all(na.omit(age < 100)))
+  .assert(distribution != "empirical" || testing_debut_age == 0, msg = "The empirical distribution may only be used when testing_debut_age=0")
+
+  TRUE
+}
+
 #' Incindence from testing history
 #'
 #' @param report_pos A logical vector indicating whether each subject reported a positive hiv status
@@ -110,7 +177,7 @@ MAX_YEARS <- 200
 #' @param ever_test A logical vector indicating whether the subject had eer had an hiv test.
 #' @param last_test A numeric vector indicating the time since last hiv test in months. If testing times are binned into buckets, this is the lower bound of the months since last hiv test.
 #' @param age A numeric vector indicating the age of each subject in years.
-#' @param debut_age The age of debut into the at risk population.
+#' @param testing_debut_age The age at which individuals begin engaging in regular testing.
 #' @param last_upper A numeric vector indicating the upper bound of the months since last hiv test for each individual.
 #' @param weights Survey weights
 #' @param distribution Either "empirical", or "weibull." This controls the family of distribution used to
@@ -143,7 +210,7 @@ MAX_YEARS <- 200
 #' @export
 testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                               ever_test, last_test, last_upper = last_test,
-                              age=NULL, debut_age=0,
+                              age=NULL, testing_debut_age=0,
                               weights=rep(1, length(report_pos)) / length(report_pos),
                               distribution=c("weibull","empirical"), test_pop=c("negative","undiagnosed"),
                               ptruth=NULL, ptreated=NULL,
@@ -152,14 +219,21 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                               subset=NULL,
                               uniform_missreport=FALSE){
 
-
   test_pop <- match.arg(test_pop)
   distribution <- match.arg(distribution)
+
+  .check_params(report_pos, biomarker_art, low_viral, hiv,
+                ever_test, last_test, last_upper,
+                age, testing_debut_age,
+                weights,distribution, test_pop,
+                ptruth, ptreated,
+                aids_dist,
+                age_breaks, subset, uniform_missreport)
 
   # Function Parameters
   params <- list(report_pos=report_pos, biomarker_art=biomarker_art, low_viral=low_viral, hiv=hiv,
                  ever_test=ever_test, last_test=last_test, last_upper=last_upper,
-                 age=age, debut_age=debut_age,
+                 age=age, testing_debut_age=testing_debut_age,
                  weights=weights,
                  distribution=distribution, test_pop=test_pop,
                  ptruth=ptruth, ptreated=ptreated,
@@ -197,7 +271,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
     k <- length(age_breaks) + 1
     for(i in 1:k){
       ua <- if(i > length(age_breaks)) Inf else age_breaks[i]
-      la <- if(i == 1) debut_age else age_breaks[i-1]
+      la <- if(i == 1) testing_debut_age else age_breaks[i-1]
       sub <- !is.na(age) & age < ua & age >= la
       lower[i] <- la
       upper[i] <- ua
@@ -207,7 +281,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
       }
       ti <- testing_incidence(report_pos[sub], biomarker_art[sub], low_viral[sub], hiv[sub],
                                     ever_test[sub], last_test[sub], last_upper[sub],
-                                    age[sub], debut_age,
+                                    age[sub], testing_debut_age,
                                     weights[sub],
                                     distribution, test_pop,
                                     ptruth=ptruth, ptreated=ptreated,
@@ -220,20 +294,12 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
     lower <- lower * 12
     upper <- pmin(MAX_YEARS, upper) * 12
     Q <- matrix(0,nrow=k,ncol=k)
-    #est <- testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-    #                                                   ever_test, last_test, last_upper,
-    #                                                   age, debut_age,
-    #                                                   weights,
-    #                                                   distribution, test_pop,
-    #                                                   ptruth=ptruth, ptreated=ptreated,
-    #                                                   aids_dist,
-    #                                                   age_breaks=NULL)
+
     for(i in 1:k){
       for(j in i:k){
         if(length(sub_estimates[[i]]) == 1)
           next
         tid <- attr(sub_estimates[[i]], "survival_distribution")$survival
-    #    tid <- attr(est, "survival_distribution")$survival
         cumtid <- c(0, cumsum(tid))
         asub <- floor(age[!is.na(age) & (age < upper[i] / 12) & (age >= lower[i] / 12)] * 12)
         int <- cumtid[upper[j] - asub] - cumtid[pmax(1, lower[j] - asub)]
@@ -250,7 +316,6 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
     pooled_inc <- sum(result$incidence * mu * (1 - result$phiv)) / sum(mu * (1 - result$phiv))
     pooled_phiv <- sum(result$phiv * mu)
     pooled_trans <- pooled_inc * (1 - pooled_phiv) / pooled_phiv
-    #all[2] <- all[1] * (1 - all[6]) / all[6]
     result <- rbind(result, c(pooled_inc, pooled_trans, rep(NA, ncol(result) - 2)))
     attr(result, "Q") <- Q
     attr(result, "c") <- c
@@ -296,7 +361,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   pmiss_class <- 1 - (ptruth + ptreated * ( 1 - ptruth))
 
   if(!is.null(age)){
-    time_at_risk <- (age - debut_age) * 12
+    time_at_risk <- (age - testing_debut_age) * 12
   }else{
     time_at_risk <- rep(MAX_YEARS*12, length(last_test))
   }
@@ -381,7 +446,7 @@ bootstrap_incidence <- function(incidence,
   type <- match.arg(type)
 
   params <- attr(incidence, "params")
-  debut_age <- params$debut_age
+  testing_debut_age <- params$testing_debut_age
   distribution <- params$distribution
   test_pop <- params$test_pop
   ptruth <- params$ptruth
@@ -401,7 +466,7 @@ bootstrap_incidence <- function(incidence,
     with(data, testing_incidence(report_pos=report_pos, biomarker_art=biomarker_art,
                                  low_viral=low_viral, hiv=hiv, ever_test=ever_test,
                                  last_test=last_test, last_upper=last_upper, weights=weights,
-                                 age=age, debut_age=debut_age, distribution = distribution,
+                                 age=age, testing_debut_age=testing_debut_age, distribution = distribution,
                                  age_breaks=age_breaks,
                                  subset=subset,
                                  test_pop=test_pop, uniform_missreport = uniform_missreport))
