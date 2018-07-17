@@ -42,29 +42,45 @@ MAX_YEARS <- 200
   exact_time <- all(na.omit(last_test == last_upper))
 
   miss_test <- is.na(last_test) | is.na(last_upper)
-  tm <- last_test
+  time_at_risk[time_at_risk == 0] <- 1
+  #tm <- last_test
   #event <- !miss_test & last_test < time_at_risk
   #event[(ever_test | is.na(ever_test)) & miss_test] <- NA
   event <- ever_test
-  tm[(!event | is.na(tm)) & !is.na(event)] <- time_at_risk[(!event | is.na(tm)) & !is.na(event)]
-
+  censored <- last_test > time_at_risk & !is.na(last_test) | is.na(time_at_risk)
+  event[censored] <- FALSE
+  last_upper[censored] <- last_test[censored] <- NA
+  #tm[(!event | is.na(tm)) & !is.na(event)] <- time_at_risk[(!event | is.na(tm)) & !is.na(event)]
+  #browser()
   if(!exact_time){
     last_upper <- ifelse(!is.na(time_at_risk) & !is.na(last_upper) & time_at_risk < last_upper, time_at_risk, last_upper)
     last_upper[!is.na(last_upper) & last_upper <= last_test] <- last_test[!is.na(last_upper) & last_upper <= last_test] + 1
-  }
+  }#else{
+  #  tm <- last_test
+  #  tm[censored & !is.na(last_test) ] <- time_at_risk[censored & !is.na(last_test) ]
+  #  tdist <- survival::survreg(survival::Surv(tm, event) ~ 1, weights=weights,dist="weibull")
+  #  shape <- 1/exp(tdist$icoef[2])
+  #  scale <- exp(tdist$coefficients)
+  #
+  #}
 
   # Fit a weibull distribtion to get P(TID | TESTER)
   weibull_lik <- function(scale, k, tau){
     p <- function(x) suppressWarnings(pweibull(x, scale=scale,shape=k))
     log_d <- function(x) suppressWarnings(dweibull(x, scale=scale,shape=k, log = TRUE))
     if(exact_time){
-      lik <- sum((log_d(last_test[event]) + log(tau)) * weights[event], na.rm=TRUE)
+      lik <- sum((log_d(last_test[event])) * weights[event], na.rm=TRUE)
     }else{
-      lik <- sum((log(p(last_upper[event]) - p(last_test[event])) + log(tau)) * weights[event], na.rm=TRUE)
+      lik <- sum((log(p(last_upper[event]) - p(last_test[event]))) * weights[event], na.rm=TRUE)
     }
+    nna <- is.na(last_test) & !is.na(event)
+    lik <- lik + sum(log(p(time_at_risk[nna & event])) * weights[nna & event], na.rm=TRUE)
+    lik <- lik + sum(log(tau) * weights[event], na.rm=TRUE)
     lik <- lik + sum( log((1 - p(time_at_risk[!event])) * tau + 1 - tau) * weights[!event], na.rm=TRUE )
+    lik <- max(-.Machine$double.xmax/10, min(.Machine$double.xmax/10, lik))
     -lik
   }
+  #browser()
   opt <- optim(function(x)weibull_lik(x[1],x[2], x[3]),
                par = c(1/initial_rate,1, .5),
                lower=c(0,0,0) + .0000000001,
@@ -107,6 +123,7 @@ MAX_YEARS <- 200
 #' If NULL, this is estimated from the data.
 #' @param aids_dist The distribution function of time from infection to aids in months.
 #' @param uniform_missreport If true, the rate of missreporting of undiagnosed status is conisuered uniform over the age strata.
+#' @param subset An optional vector specifying a subset of observations on which to perform the analysis. If uniform_missreport is TRUE, ptruth and ptreated are calculated over the full data.
 #' @details
 #' When time since last test is grouped into bins, last_upper should always be greater than last_test,
 #'  and may be infinite (e.g. test was  > 24 months ago). Those with missing data or who never had an hiv test
@@ -132,6 +149,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                               ptruth=NULL, ptreated=NULL,
                               aids_dist = function(x) pweibull(x / 12, scale=1/0.086, shape=2.516),
                               age_breaks=NULL,
+                              subset=NULL,
                               uniform_missreport=FALSE){
 
 
@@ -147,6 +165,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                  ptruth=ptruth, ptreated=ptreated,
                  aids_dist=aids_dist,
                  age_breaks=age_breaks,
+                 subset=subset,
                  uniform_missreport=uniform_missreport)
 
   treated <- low_viral | biomarker_art
@@ -158,7 +177,18 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
       ptruth <- tlie[2,1] / sum(tlie[2,])
     if(is.null(ptreated) & uniform_missreport)
       ptreated <- tlie[2,1] / sum(tlie[,1])
-
+    if(!is.null(subset)){
+      subset[is.na(subset)] <- FALSE
+      report_pos <- report_pos[subset]
+      biomarker_art <- biomarker_art[subset]
+      low_viral <- low_viral[subset]
+      hiv <- hiv[subset]
+      ever_test <- ever_test[subset]
+      last_test <- last_test[subset]
+      last_upper <- last_upper[subset]
+      age <- age[subset]
+      weights <- weights[subset]
+    }
     age_breaks <- sort(age_breaks)
     sub_estimates <- list()
     lower <- c()
@@ -190,13 +220,22 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
     lower <- lower * 12
     upper <- pmin(MAX_YEARS, upper) * 12
     Q <- matrix(0,nrow=k,ncol=k)
+    #est <- testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+    #                                                   ever_test, last_test, last_upper,
+    #                                                   age, debut_age,
+    #                                                   weights,
+    #                                                   distribution, test_pop,
+    #                                                   ptruth=ptruth, ptreated=ptreated,
+    #                                                   aids_dist,
+    #                                                   age_breaks=NULL)
     for(i in 1:k){
       for(j in i:k){
         if(length(sub_estimates[[i]]) == 1)
           next
         tid <- attr(sub_estimates[[i]], "survival_distribution")$survival
+    #    tid <- attr(est, "survival_distribution")$survival
         cumtid <- c(0, cumsum(tid))
-        asub <- round(age[!is.na(age) & age < upper[i] / 12 & age >= lower[i] / 12] * 12)
+        asub <- floor(age[!is.na(age) & (age < upper[i] / 12) & (age >= lower[i] / 12)] * 12)
         int <- cumtid[upper[j] - asub] - cumtid[pmax(1, lower[j] - asub)]
         Q[j,i] <- mean(int)
       }
@@ -226,11 +265,42 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
     return(result)
   }
 
+  if(!is.null(subset)){
+    subset[is.na(subset)] <- FALSE
+    if(uniform_missreport){
+      # Adjust for missreporting of HIV status over total population
+      tlie <- wtd.table(treated, !report_pos, weights = weights)
+      if(is.null(ptruth))
+        ptruth <- tlie[2,1] / sum(tlie[2,])
+      if(is.null(ptreated))
+        ptreated <- tlie[2,1] / sum(tlie[,1])
+    }
+    report_pos <- report_pos[subset]
+    biomarker_art <- biomarker_art[subset]
+    low_viral <- low_viral[subset]
+    hiv <- hiv[subset]
+    ever_test <- ever_test[subset]
+    last_test <- last_test[subset]
+    last_upper <- last_upper[subset]
+    age <- age[subset]
+    weights <- weights[subset]
+    treated <- treated[subset]
+  }
+
+  # Adjust for missreporting of HIV status
+  tlie <- wtd.table(treated, !report_pos, weights = weights)
+  if(is.null(ptruth))
+    ptruth <- tlie[2,1] / sum(tlie[2,])
+  if(is.null(ptreated))
+    ptreated <- tlie[2,1] / sum(tlie[,1])
+  pmiss_class <- 1 - (ptruth + ptreated * ( 1 - ptruth))
+
   if(!is.null(age)){
     time_at_risk <- (age - debut_age) * 12
   }else{
     time_at_risk <- rep(MAX_YEARS*12, length(last_test))
   }
+  time_at_risk[is.na(time_at_risk)] <- MAX_YEARS*12
 
   ptester <- as.vector(prop.table(wtd.table(ever_test[!hiv],weights=weights[!hiv]))[2])
 
@@ -262,13 +332,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   tid <- sum(surv_dist$survival)
   ptester <- surv_dist$tau
 
-  # Adjust for missreporting of HIV status
-  tlie <- wtd.table(treated, !report_pos, weights = weights)
-  if(is.null(ptruth))
-    ptruth <- tlie[2,1] / sum(tlie[2,])
-  if(is.null(ptreated))
-    ptreated <- tlie[2,1] / sum(tlie[,1])
-  pmiss_class <- 1 - (ptruth + ptreated * ( 1 - ptruth))
+
   #pundiag <- (ppos_undiag - pmiss_class) / (1 - pmiss_class)
   pundiag <- 1 - (1 - ppos_undiag) / (ptruth + ptreated * ( 1 - ptruth))
   # Calculate incidence
@@ -324,12 +388,13 @@ bootstrap_incidence <- function(incidence,
   ptreated <- params$ptreated
   aids_dist <- params$aids_dist
   age_breaks <- params$age_breaks
+  subset <- params$subset
   uniform_missreport <- params$uniform_missreport
 
 
-  dat <- as.data.frame(params[c('report_pos', 'biomarker_art', 'low_viral', 'hiv',
+  dat <- params[c('report_pos', 'biomarker_art', 'low_viral', 'hiv',
                                 'ever_test', 'last_test', 'last_upper',
-                                'age','weights')])
+                                'age','weights','subset')]
   fun <- function(data, weights=NULL){
     if(!is.null(weights))
       data$weights <- weights
@@ -338,6 +403,7 @@ bootstrap_incidence <- function(incidence,
                                  last_test=last_test, last_upper=last_upper, weights=weights,
                                  age=age, debut_age=debut_age, distribution = distribution,
                                  age_breaks=age_breaks,
+                                 subset=subset,
                                  test_pop=test_pop, uniform_missreport = uniform_missreport))
   }
   if(is.null(rep_weights)){
@@ -357,7 +423,7 @@ bootstrap_incidence <- function(incidence,
 # @param show_progress print progress
 .srs_bootstrap <- function(dat, fun, nrep=1000, show_progress=TRUE){
   value <- as.matrix(fun(dat))
-  n <- nrow(dat)
+  n <- max(sapply(dat, length))
   nr <- nrow(value)
   nc <- ncol(value)
 
@@ -367,7 +433,7 @@ bootstrap_incidence <- function(incidence,
     if(show_progress)
       cat(".")
     samp <- sample.int(n, n, replace=TRUE)
-    boot <- dat[samp, , drop=FALSE]
+    boot <- lapply(dat, function(x) x[samp])
     val <- try(as.matrix(fun(boot)))
     if(!inherits(val, "try-error"))
       estimates[,,i] <- as.matrix(fun(boot))
@@ -409,7 +475,7 @@ bootstrap_incidence <- function(incidence,
 
   type <- match.arg(type)
   not_miss <- (rowSums(is.na(rep_weights)) + is.na(weights)) < 0.5
-  dat <- dat[not_miss,]
+  dat <- lapply(dat,function(x) x[not_miss])#dat[not_miss,]
   weights <- weights[not_miss]
   rep_weights <- rep_weights[not_miss,]
 
