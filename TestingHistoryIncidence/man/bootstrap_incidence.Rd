@@ -26,3 +26,15 @@ bootstrap_incidence(incidence, nrep = 1000, rep_weights = NULL,
 \description{
 Calculates bootstrap variability estimates
 }
+\examples{
+  data(tstdat)
+  tstdat$age <- rep(15:64, 200)
+
+
+  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+                                        ever_test, last_test))
+
+  # Simple random sample bootstrap with 5 replicates.
+  bootstrap_incidence(inc,nrep=5, show_progress=FALSE)
+
+}

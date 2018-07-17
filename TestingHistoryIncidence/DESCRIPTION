@@ -6,7 +6,8 @@ Author: Ian Fellows
 Maintainer: Ian Fellows <ian@fellstat.com>
 Description: Utilizes crosssectional survey data containing information on
     partcipants' testing history and diagnosis to estimate incidence.
-License: GPL-2
+License: MIT + file LICENSE
+Depends: R (>= 2.10)
 Imports:
     survey,
     questionr,

@@ -109,6 +109,8 @@ MAX_YEARS <- 200
                           aids_dist,
                           age_breaks, subset, uniform_missreport){
   n <- length(report_pos)
+  if(n < 3)
+    stop("Too few observations to perform estimation")
   n1 <- length(biomarker_art)
   .assert(n == n1, msg = paste0("biomarker_art is of length ", n1, " expecting ", n))
   n1 <- length(low_viral)
@@ -165,6 +167,10 @@ MAX_YEARS <- 200
   .assert(all(na.omit(age < 100)))
   .assert(distribution != "empirical" || testing_debut_age == 0, msg = "The empirical distribution may only be used when testing_debut_age=0")
 
+  if(!is.null(age_breaks)){
+    .assert(age_breaks > min(age, na.rm=TRUE), msg= "age_breaks: break points must all be greater than the smallest age value")
+    .assert(age_breaks < max(age, na.rm=TRUE), msg= "age_breaks: break points must all be smaller than the largest age value")
+  }
   TRUE
 }
 
@@ -200,13 +206,55 @@ MAX_YEARS <- 200
 #' 'transmission rate': the estimated transmission rate.
 #' 'pundiag': The estimated proportion of positive cases that are undiagnosed.
 #' 'psay_undiag': The proportion of positive cases that report being undiagnosed.
-#' 'pmiss_class': the proportion whose diagnosis status is incorrectly reported by the individual .
+#' 'pmiss_class': the proportion whose diagnosis status is incorrectly reported by the individual and are observed as treated due to viral load or art biomarkers.
 #' 'phiv': The proportion with a positive diagnosis.
 #' 'ptester': The proportion who have ever been tested.
 #' 'mean_time_since_last_test': the mean tie since last test in years.
 #' 'tid': mean time between infection and diagnosis in years.
 #' 'ptruth' the proportion of positive individuals that correctly report their status.
 #' 'ptreated': the proportion of positive indivudals who are identified as treated by viral load or biomarker.
+#'
+#' @examples
+#'   data(tstdat)
+#'   tstdat$age <- rep(15:64, 200)
+#'
+#'
+#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+#'                                         ever_test, last_test))
+#'   inc
+#'
+#'   # Using last test times divided into bins
+#'   tstdat$last_test_lower <- 24
+#'   tstdat$last_test_upper <- Inf
+#'   tstdat$last_test_lower[tstdat$last_test < 6] <- 0
+#'   tstdat$last_test_upper[tstdat$last_test < 6] <- 6
+#'   tstdat$last_test_lower[tstdat$last_test >= 6 & tstdat$last_test < 12] <- 6
+#'   tstdat$last_test_upper[tstdat$last_test >= 6 & tstdat$last_test < 12] <- 12
+#'   tstdat$last_test_lower[tstdat$last_test >= 12 & tstdat$last_test < 24] <- 12
+#'   tstdat$last_test_upper[tstdat$last_test >= 12 & tstdat$last_test < 24] <- 24
+#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+#'                                         ever_test, last_test_lower, last_test_upper))
+#'   inc
+#'
+#'   # HIV testing starts at age 13
+#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+#'                                         ever_test, last_test,
+#'                                         age=age,testing_debut_age=13))
+#'   inc
+#'
+#'   # Stratify by age
+#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+#'                                         ever_test, last_test,
+#'                                         age=age,testing_debut_age=13,age_breaks=c(25,35,45,55)))
+#'   inc
+#'
+#'   # Pooled estimate probability of miss-reporting diagnosis status across groups
+#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+#'                                         ever_test, last_test,
+#'                                         age=age,testing_debut_age=13,
+#'                                         age_breaks=c(25,35,45,55),
+#'                                         uniform_missreport=TRUE))
+#'   inc
 #' @export
 testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
                               ever_test, last_test, last_upper = last_test,
@@ -221,6 +269,8 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
 
   test_pop <- match.arg(test_pop)
   distribution <- match.arg(distribution)
+  if(!is.null(age_breaks))
+    age_breaks <- sort(age_breaks)
 
   .check_params(report_pos, biomarker_art, low_viral, hiv,
                 ever_test, last_test, last_upper,
@@ -436,6 +486,17 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
 #' @param combined_weights TRUE if the rep_weights already include the sampling weights. This is usually the case.
 #' @param show_progress print bootstrap progress
 #' @param ... additional parameters to svrepdesign.
+#' @examples
+#'   data(tstdat)
+#'   tstdat$age <- rep(15:64, 200)
+#'
+#'
+#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+#'                                         ever_test, last_test))
+#'
+#'   # Simple random sample bootstrap with 5 replicates.
+#'   bootstrap_incidence(inc,nrep=5, show_progress=FALSE)
+#'
 #' @export
 bootstrap_incidence <- function(incidence,
                                 nrep=1000,

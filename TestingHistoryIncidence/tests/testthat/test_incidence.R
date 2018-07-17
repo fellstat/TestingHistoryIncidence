@@ -49,19 +49,17 @@ test_that(".fit_dist_empirical", {
 
 test_that("testing_incidence", {
   data(tstdat)
+
   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test,
-                                        age=age, debut_age=15))
-  expect_equivalent(inc,
-                    structure(list(incidence = 0.00606501745649428, transmission = 0.0535713390478742,
-                                   pundiag = 0.291371713560825, psay_undiag = 0.396263520157325,
-                                   pmiss_class = 0.0897422142330957, phiv = 0.1017, ptester = 0.797353214042446,
-                                   mean_time_since_last_test = 5.07999284254086, tid = 5.43894774219549,
-                                   ptruth = 0.850271528316524, ptreated = 0.400633605458755,
-                                   n = 10000L), .Names = c("incidence", "transmission", "pundiag",
-                                                           "psay_undiag", "pmiss_class", "phiv", "ptester", "mean_time_since_last_test",
-                                                           "tid", "ptruth", "ptreated", "n"), class = c("test_inc", "data.frame"
-                                                           ), row.names = "estimate")
+                                        ever_test, last_test))
+  expect_equivalent(as.matrix(inc),
+                    structure(c(0.00575807622336409, 0.0508601757271186, 0.291371713560825,
+                                0.396263520157325, 0.0897422142330957, 0.1017, 0.707334433262165,
+                                4.4364845698551, 5.72887744478369, 0.850271528316524, 0.400633605458755,
+                                10000), .Dim = c(1L, 12L), .Dimnames = list("estimate", c("incidence",
+                                                                                          "transmission", "pundiag", "psay_undiag", "pmiss_class", "phiv",
+                                                                                          "ptester", "mean_time_since_last_test", "tid", "ptruth", "ptreated",
+                                                                                          "n")))
   )
 
   bi <- bootstrap_incidence(inc,nrep=3, show_progress = FALSE)

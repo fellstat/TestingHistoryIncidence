@@ -5,12 +5,12 @@
 \title{Incindence from testing history}
 \usage{
 testing_incidence(report_pos, biomarker_art, low_viral, hiv, ever_test,
-  last_test, last_upper = last_test, age = NULL, debut_age = 0,
+  last_test, last_upper = last_test, age = NULL, testing_debut_age = 0,
   weights = rep(1, length(report_pos))/length(report_pos),
   distribution = c("weibull", "empirical"), test_pop = c("negative",
   "undiagnosed"), ptruth = NULL, ptreated = NULL, aids_dist = function(x)
   pweibull(x/12, scale = 1/0.086, shape = 2.516), age_breaks = NULL,
-  uniform_missreport = FALSE)
+  subset = NULL, uniform_missreport = FALSE)
 }
 \arguments{
 \item{report_pos}{A logical vector indicating whether each subject reported a positive hiv status}
@@ -29,7 +29,7 @@ testing_incidence(report_pos, biomarker_art, low_viral, hiv, ever_test,
 
 \item{age}{A numeric vector indicating the age of each subject in years.}
 
-\item{debut_age}{The age of debut into the at risk population.}
+\item{testing_debut_age}{The age at which individuals begin engaging in regular testing.}
 
 \item{weights}{Survey weights}
 
@@ -48,6 +48,8 @@ If NULL, this is estimated using biomarker_art and low_viral.}
 \item{age_breaks}{age stratification break points.
 If NULL, this is estimated from the data.}
 
+\item{subset}{An optional vector specifying a subset of observations on which to perform the analysis. If uniform_missreport is TRUE, ptruth and ptreated are calculated over the full data.}
+
 \item{uniform_missreport}{If true, the rate of missreporting of undiagnosed status is conisuered uniform over the age strata.}
 }
 \value{
@@ -56,7 +58,7 @@ A data.frame of class test_inc with elements:
 'transmission rate': the estimated transmission rate.
 'pundiag': The estimated proportion of positive cases that are undiagnosed.
 'psay_undiag': The proportion of positive cases that report being undiagnosed.
-'pmiss_class': the proportion whose diagnosis status is incorrectly reported by the individual .
+'pmiss_class': the proportion whose diagnosis status is incorrectly reported by the individual and are observed as treated due to viral load or art biomarkers.
 'phiv': The proportion with a positive diagnosis.
 'ptester': The proportion who have ever been tested.
 'mean_time_since_last_test': the mean tie since last test in years.
@@ -71,4 +73,46 @@ Incindence from testing history
 When time since last test is grouped into bins, last_upper should always be greater than last_test,
  and may be infinite (e.g. test was  > 24 months ago). Those with missing data or who never had an hiv test
 should be assigned NA for both their lower and upper bound.
+}
+\examples{
+  data(tstdat)
+  tstdat$age <- rep(15:64, 200)
+
+
+  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+                                        ever_test, last_test))
+  inc
+
+  # Using last test times divided into bins
+  tstdat$last_test_lower <- 24
+  tstdat$last_test_upper <- Inf
+  tstdat$last_test_lower[tstdat$last_test < 6] <- 0
+  tstdat$last_test_upper[tstdat$last_test < 6] <- 6
+  tstdat$last_test_lower[tstdat$last_test >= 6 & tstdat$last_test < 12] <- 6
+  tstdat$last_test_upper[tstdat$last_test >= 6 & tstdat$last_test < 12] <- 12
+  tstdat$last_test_lower[tstdat$last_test >= 12 & tstdat$last_test < 24] <- 12
+  tstdat$last_test_upper[tstdat$last_test >= 12 & tstdat$last_test < 24] <- 24
+  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+                                        ever_test, last_test_lower, last_test_upper))
+  inc
+
+  # HIV testing starts at age 13
+  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+                                        ever_test, last_test,
+                                        age=age,testing_debut_age=13))
+  inc
+
+  # Stratify by age
+  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+                                        ever_test, last_test,
+                                        age=age,testing_debut_age=13,age_breaks=c(25,35,45,55)))
+  inc
+
+  # Pooled estimate probability of miss-reporting diagnosis status across groups
+  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+                                        ever_test, last_test,
+                                        age=age,testing_debut_age=13,
+                                        age_breaks=c(25,35,45,55),
+                                        uniform_missreport=TRUE))
+  inc
 }
