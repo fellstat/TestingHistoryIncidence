@@ -204,7 +204,7 @@ MAX_YEARS <- 200
 #' @return A data.frame of class test_inc with elements:
 #' 'incidence': the estimated incidence.
 #' 'transmission rate': the estimated transmission rate.
-#' 'pundiag': The estimated proportion of positive cases that are undiagnosed.
+#' 'pundiag': The estimated proportion of positive cases that are undiagnosed after removing treated cases and adjusting for miss-reporting.
 #' 'psay_undiag': The proportion of positive cases that report being undiagnosed.
 #' 'pmiss_class': the proportion whose diagnosis status is incorrectly reported by the individual and are observed as treated due to viral load or art biomarkers.
 #' 'phiv': The proportion with a positive diagnosis.
