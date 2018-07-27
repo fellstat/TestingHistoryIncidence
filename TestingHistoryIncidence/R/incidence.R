@@ -484,7 +484,7 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
 #' @param rep_weights A dataframe of replicate weights.
 #' @param type The type of resampling weights. See svrepdesign.
 #' @param combined_weights TRUE if the rep_weights already include the sampling weights. This is usually the case.
-#' @param show_progress print bootstrap progress
+#' @param show_progress If TRUE, prints bootstrap progress. This may also be a callback function taking one parameter equal to the index of the current replicate.
 #' @param ... additional parameters to svrepdesign.
 #' @examples
 #'   data(tstdat)
@@ -556,7 +556,9 @@ bootstrap_incidence <- function(incidence,
   errors <- list()
   estimates <- array(NA, dim=c(nr, nc, nrep))
   for(i in 1:nrep){
-    if(show_progress)
+    if(is.function(show_progress))
+      show_progress(i)
+    else if(show_progress)
       cat(".")
     samp <- sample.int(n, n, replace=TRUE)
     boot <- lapply(dat, function(x) x[samp])
@@ -566,7 +568,7 @@ bootstrap_incidence <- function(incidence,
     else
       errors[[length(errors) + 1]] <- val
   }
-  if(show_progress)
+  if(!is.function(show_progress) && show_progress)
     cat("\n")
   vars <- matrix(NA,nrow=nr,ncol=nc)
   for(i in 1:nr){
@@ -601,6 +603,8 @@ bootstrap_incidence <- function(incidence,
 
   type <- match.arg(type)
   not_miss <- (rowSums(is.na(rep_weights)) + is.na(weights)) < 0.5
+  if(sum(not_miss) < 2)
+    stop("Too few observations with non-missing rep_weights and weights")
   dat <- lapply(dat,function(x) x[not_miss])#dat[not_miss,]
   weights <- weights[not_miss]
   rep_weights <- rep_weights[not_miss,]
@@ -622,7 +626,9 @@ bootstrap_incidence <- function(incidence,
   errors <- list()
   estimates <- array(NA, dim=c(nr, nc, nrep))
   for(i in 1:nrep){
-    if(show_progress)
+    if(is.function(show_progress))
+      show_progress(i)
+    else if(show_progress)
       cat(".")
     val <- try(as.matrix(fun(dat, rep_weights[,i])))
     if(!inherits(val, "try-error"))
@@ -630,7 +636,7 @@ bootstrap_incidence <- function(incidence,
     else
       errors[[length(errors) + 1]] <- val
   }
-  if(show_progress)
+  if(!is.function(show_progress) && show_progress)
     cat("\n")
   vars <- matrix(NA,nrow=nr,ncol=nc)
   for(i in 1:nr){
