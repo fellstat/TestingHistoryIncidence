@@ -3,6 +3,7 @@
 library(shiny)
 library(promises)
 library(future)
+library(ShinyAsyncTools)
 plan(multiprocess)
 library(ggplot2)
 library(TestingHistoryIncidence)
@@ -15,15 +16,15 @@ shinyServer(function(input, output, session) {
   #  tempfile()
   #})
 
-  stop_file <- tempfile()
-  write("Ready", stop_file)
+  #stop_file <- tempfile()
+  #write("Ready", stop_file)
 
-  onStop(function(){
-    print("session ended")
-    print(stop_file)
-    if(file.exists(stop_file))
-      unlink(stop_file)
-  })
+  #onStop(function(){
+  #  print("session ended")
+  #  print(stop_file)
+  #  if(file.exists(stop_file))
+  #    unlink(stop_file)
+  #})
 
   get_raw_data <- reactive({
     inFile <- input$file1
@@ -333,6 +334,8 @@ shinyServer(function(input, output, session) {
   }, rownames=FALSE,
   width="400px", digits=4)
 
+  interruptor <- AsyncInterruptor$new()
+
   boot_result <- reactiveVal()
   observeEvent(input$run,{
     if(nclicks() != 0){
@@ -341,7 +344,7 @@ shinyServer(function(input, output, session) {
     }
     nclicks(nclicks() + 1)
     boot_result(data.frame(Status="Running..."))
-    write("Running...", stop_file)
+    #write("Running...", stop_file)
     if(is.null(incidence()))
       return(NULL)
     nrep <- as.numeric(input$nrep)
@@ -350,13 +353,11 @@ shinyServer(function(input, output, session) {
     if(!is.null(rep_weights))
       nrep <- ncol(rep_weights)
 
+    progress <- AsyncProgress$new(message="Generating Boostrap Samples")
     prog <- function(i, strata, nstrata){
-      #if(i %% 10 == 1){
-        r <- scan(stop_file, what = "character",sep="-")
-        if(r == "interrupt")
-          stop("User Interrupt")
-        write(paste0("Running... ", floor(100 * ( (strata - 1) * nrep + i) / (nrep*nstrata)),"% Complete"), stop_file)
-      #}
+      interruptor$execInterrupts()
+      progress$set(( (strata - 1) * nrep + i) / (nrep*nstrata))
+      #write(paste0("Running... ", floor(100 * ( (strata - 1) * nrep + i) / (nrep*nstrata)),"% Complete"), stop_file)
     }
 
     type <- input$type
@@ -388,7 +389,7 @@ shinyServer(function(input, output, session) {
                       }
                       blist[[i]] <- boot
                     }
-                    write("Ready", stop_file)
+                    #write("Ready", stop_file)
                     do.call(rbind, blist)
                   })  %...>% boot_result,
                   function(e) {
@@ -400,7 +401,8 @@ shinyServer(function(input, output, session) {
                     }
                   ),
                 function(){
-                  write("Ready", stop_file)
+                  progress$sequentialClose()
+                  #write("Ready", stop_file)
                   nclicks(0)
                 }
     )
@@ -413,12 +415,13 @@ shinyServer(function(input, output, session) {
 
   observeEvent(input$cancel,{
     print("cancel")
-    print(stop_file)
-    write("interrupt", stop_file)
+    interruptor$interrupt("User Interrupt")
+    #print(stop_file)
+    #write("interrupt", stop_file)
   })
 
   observeEvent(input$status,{
-    showNotification(scan(stop_file, what = "character",sep="-"))
+    #showNotification(scan(stop_file, what = "character",sep="-"))
   })
 
 #   output$bootstrap <- renderTable({

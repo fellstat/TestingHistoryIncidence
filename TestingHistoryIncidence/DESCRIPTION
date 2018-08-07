@@ -22,5 +22,6 @@ Suggests: testthat,
     shinyWidgets,
     shinycssloaders,
     promises,
-    future
+    future,
+    ShinyAsyncTools
 VignetteBuilder: knitr
