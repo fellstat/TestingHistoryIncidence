@@ -19,7 +19,7 @@ bootstrap_incidence(incidence, nrep = 1000, rep_weights = NULL,
 
 \item{combined_weights}{TRUE if the rep_weights already include the sampling weights. This is usually the case.}
 
-\item{show_progress}{print bootstrap progress}
+\item{show_progress}{If TRUE, prints bootstrap progress. This may also be a callback function taking one parameter equal to the index of the current replicate.}
 
 \item{...}{additional parameters to svrepdesign.}
 }
@@ -31,8 +31,9 @@ Calculates bootstrap variability estimates
   tstdat$age <- rep(15:64, 200)
 
 
-  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test))
+  inc <- with(tstdat, testing_incidence(report_pos, hiv,
+                                        ever_test, last_test,
+                                        biomarker_art=biomarker_art, low_viral=low_viral))
 
   # Simple random sample bootstrap with 5 replicates.
   bootstrap_incidence(inc,nrep=5, show_progress=FALSE)

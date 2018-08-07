@@ -129,10 +129,10 @@ MAX_YEARS <- 200
   }
   if(!is.null(subset)){
     .assert(is.logical(subset), length(subset) == n)
-    if(uniform_missreport && (is.null(ptruth) || is.null(ptreated))){
-      has_trt <- sum((low_viral | biomarker_art) * weights, na.rm=TRUE) > 0
-      .assert(has_trt, msg="Unable to estimate missreporting as no treated cases are present")
-    }
+    #if(uniform_missreport && (is.null(ptruth) || is.null(ptreated))){
+    #  has_trt <- sum((low_viral | biomarker_art) * weights, na.rm=TRUE) > 0
+    #  .assert(has_trt, msg="Unable to estimate missreporting as no treated cases are present")
+    #}
     subset[is.na(subset)] <- FALSE
     report_pos <- report_pos[subset]
     biomarker_art <- biomarker_art[subset]
@@ -143,16 +143,16 @@ MAX_YEARS <- 200
     last_upper <- last_upper[subset]
     age <- age[subset]
     weights <- weights[subset]
-    if(!uniform_missreport && (is.null(ptruth) || is.null(ptreated))){
-      has_trt <- sum((low_viral | biomarker_art) * weights, na.rm=TRUE) > 0
-      .assert(has_trt, msg="Unable to estimate missreporting as no treated cases are present. Try using uniform_missreport=TRUE.")
-    }
-  }else{
-    if(is.null(ptruth) || is.null(ptreated)){
-      has_trt <- sum((low_viral | biomarker_art) * weights, na.rm=TRUE) > 0
-      .assert(has_trt, msg="Unable to estimate missreporting as no treated cases are present.")
-    }
-  }
+    #if(!uniform_missreport && (is.null(ptruth) || is.null(ptreated))){
+    #  has_trt <- sum((low_viral | biomarker_art) * weights, na.rm=TRUE) > 0
+    #  .assert(has_trt, msg="Unable to estimate missreporting as no treated cases are present. Try using uniform_missreport=TRUE.")
+    #}
+  }#else{
+  #  if(is.null(ptruth) || is.null(ptreated)){
+  #    has_trt <- sum((low_viral | biomarker_art) * weights, na.rm=TRUE) > 0
+  #    .assert(has_trt, msg="Unable to estimate missreporting as no treated cases are present.")
+  #  }
+  #}
   tbl <- wtd.table(report_pos, weights=weights)
   .assert(length(tbl) == 2 & all(tbl > 0), msg="report_pos should have two unique values.")
 
@@ -161,7 +161,6 @@ MAX_YEARS <- 200
 
   tbl <- wtd.table(ever_test, weights=weights)
   .assert(length(tbl) == 2 & all(tbl > 0), msg="ever_test should have two unique values.")
-
   .assert(all(na.omit(last_upper >= last_test)))
   .assert(all(na.omit(age >= testing_debut_age)))
   .assert(all(na.omit(age < 100)))
@@ -219,8 +218,9 @@ MAX_YEARS <- 200
 #'   tstdat$age <- rep(15:64, 200)
 #'
 #'
-#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-#'                                         ever_test, last_test))
+#'   inc <- with(tstdat, testing_incidence(report_pos, hiv,
+#'                                         ever_test, last_test,
+#'                                         biomarker_art=biomarker_art, low_viral=low_viral))
 #'   inc
 #'
 #'   # Using last test times divided into bins
@@ -232,32 +232,38 @@ MAX_YEARS <- 200
 #'   tstdat$last_test_upper[tstdat$last_test >= 6 & tstdat$last_test < 12] <- 12
 #'   tstdat$last_test_lower[tstdat$last_test >= 12 & tstdat$last_test < 24] <- 12
 #'   tstdat$last_test_upper[tstdat$last_test >= 12 & tstdat$last_test < 24] <- 24
-#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-#'                                         ever_test, last_test_lower, last_test_upper))
+#'   inc <- with(tstdat, testing_incidence(report_pos, hiv,
+#'                                         ever_test, last_test_lower, last_test_upper,
+#'                                         biomarker_art=biomarker_art, low_viral=low_viral))
 #'   inc
 #'
 #'   # HIV testing starts at age 13
-#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+#'   inc <- with(tstdat, testing_incidence(report_pos, hiv,
 #'                                         ever_test, last_test,
+#'                                         biomarker_art=biomarker_art, low_viral=low_viral,
 #'                                         age=age,testing_debut_age=13))
 #'   inc
 #'
 #'   # Stratify by age
-#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+#'   inc <- with(tstdat, testing_incidence(report_pos, hiv,
 #'                                         ever_test, last_test,
+#'                                         biomarker_art=biomarker_art, low_viral=low_viral,
 #'                                         age=age,testing_debut_age=13,age_breaks=c(25,35,45,55)))
 #'   inc
 #'
 #'   # Pooled estimate probability of miss-reporting diagnosis status across groups
-#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+#'   inc <- with(tstdat, testing_incidence(report_pos, hiv,
 #'                                         ever_test, last_test,
+#'                                         biomarker_art=biomarker_art, low_viral=low_viral,
 #'                                         age=age,testing_debut_age=13,
 #'                                         age_breaks=c(25,35,45,55),
 #'                                         uniform_missreport=TRUE))
 #'   inc
 #' @export
-testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
+testing_incidence <- function(report_pos, hiv,
                               ever_test, last_test, last_upper = last_test,
+                              biomarker_art=rep(FALSE, length(report_pos)),
+                              low_viral=rep(FALSE, length(report_pos)),
                               age=NULL, testing_debut_age=0,
                               weights=rep(1, length(report_pos)) / length(report_pos),
                               distribution=c("weibull","empirical"), test_pop=c("negative","undiagnosed"),
@@ -296,11 +302,16 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   treated[is.na(treated)] <- FALSE
 
   if(!is.null(age_breaks)){
-    tlie <- wtd.table(treated, !report_pos, weights = weights)
-    if(is.null(ptruth) & uniform_missreport)
-      ptruth <- tlie[2,1] / sum(tlie[2,])
-    if(is.null(ptreated) & uniform_missreport)
-      ptreated <- tlie[2,1] / sum(tlie[,1])
+    if(any(treated)){
+      tlie <- wtd.table(treated, !report_pos, weights = weights)
+      if(is.null(ptruth) & uniform_missreport)
+        ptruth <- tlie[2,1] / sum(tlie[2,])
+      if(is.null(ptreated) & uniform_missreport)
+        ptreated <- tlie[2,1] / sum(tlie[,1])
+    }else{
+      ptruth <- 1
+      ptreated <- 0
+    }
     if(!is.null(subset)){
       subset[is.na(subset)] <- FALSE
       report_pos <- report_pos[subset]
@@ -329,8 +340,9 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
       if(sum(sub) == 0){
         stop("No observations in age group")
       }
-      ti <- testing_incidence(report_pos[sub], biomarker_art[sub], low_viral[sub], hiv[sub],
+      ti <- testing_incidence(report_pos[sub], hiv[sub],
                                     ever_test[sub], last_test[sub], last_upper[sub],
+                                    biomarker_art[sub], low_viral[sub],
                                     age[sub], testing_debut_age,
                                     weights[sub],
                                     distribution, test_pop,
@@ -384,11 +396,16 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
     subset[is.na(subset)] <- FALSE
     if(uniform_missreport){
       # Adjust for missreporting of HIV status over total population
-      tlie <- wtd.table(treated, !report_pos, weights = weights)
-      if(is.null(ptruth))
-        ptruth <- tlie[2,1] / sum(tlie[2,])
-      if(is.null(ptreated))
-        ptreated <- tlie[2,1] / sum(tlie[,1])
+      if(any(treated)){
+        tlie <- wtd.table(treated, !report_pos, weights = weights)
+        if(is.null(ptruth) & uniform_missreport)
+          ptruth <- tlie[2,1] / sum(tlie[2,])
+        if(is.null(ptreated) & uniform_missreport)
+          ptreated <- tlie[2,1] / sum(tlie[,1])
+      }else{
+        ptruth <- 1
+        ptreated <- 0
+      }
     }
     report_pos <- report_pos[subset]
     biomarker_art <- biomarker_art[subset]
@@ -403,11 +420,16 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
   }
 
   # Adjust for missreporting of HIV status
-  tlie <- wtd.table(treated, !report_pos, weights = weights)
-  if(is.null(ptruth))
-    ptruth <- tlie[2,1] / sum(tlie[2,])
-  if(is.null(ptreated))
-    ptreated <- tlie[2,1] / sum(tlie[,1])
+  if(any(treated)){
+    tlie <- wtd.table(treated, !report_pos, weights = weights)
+    if(is.null(ptruth))
+      ptruth <- tlie[2,1] / sum(tlie[2,])
+    if(is.null(ptreated))
+      ptreated <- tlie[2,1] / sum(tlie[,1])
+  }else{
+    ptruth <- 1
+    ptreated <- 0
+  }
   pmiss_class <- 1 - (ptruth + ptreated * ( 1 - ptruth))
 
   if(!is.null(age)){
@@ -491,8 +513,9 @@ testing_incidence <- function(report_pos, biomarker_art, low_viral, hiv,
 #'   tstdat$age <- rep(15:64, 200)
 #'
 #'
-#'   inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-#'                                         ever_test, last_test))
+#'   inc <- with(tstdat, testing_incidence(report_pos, hiv,
+#'                                         ever_test, last_test,
+#'                                         biomarker_art=biomarker_art, low_viral=low_viral))
 #'
 #'   # Simple random sample bootstrap with 5 replicates.
 #'   bootstrap_incidence(inc,nrep=5, show_progress=FALSE)

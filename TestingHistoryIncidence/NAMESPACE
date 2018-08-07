@@ -3,6 +3,7 @@
 S3method(print,inc_boot_est)
 S3method(summary,inc_boot_est)
 export(bootstrap_incidence)
+export(shiny_testing_history)
 export(testing_incidence)
 importFrom(questionr,wtd.table)
 importFrom(stats,dgamma)

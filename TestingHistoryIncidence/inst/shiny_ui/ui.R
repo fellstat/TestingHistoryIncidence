@@ -46,9 +46,9 @@ shinyUI(
                                c(""))
               )
             ),tags$hr(),
-            selectizeInput("biomarker_art", "ART Biomarker:",
+            selectizeInput("biomarker_art", "ART Biomarker (Optional):",
                         c("")),
-            selectizeInput("low_viral", "Low/Undetectable Viral Load:",
+            selectizeInput("low_viral", "Low/Undetectable Viral Load (Optional):",
                         c("")),
             selectizeInput("age", "Age (Optional):",
                            c("")),
@@ -164,8 +164,7 @@ shinyUI(
                       )
                     ),
                     actionButton('run', 'Run'),
-                    actionButton('cancel', 'Cancel'),
-                    actionButton('status', 'Check Status')
+                    actionButton('cancel', 'Cancel')
                    )
 
 

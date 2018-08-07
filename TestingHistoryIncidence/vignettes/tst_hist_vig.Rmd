@@ -58,6 +58,7 @@ devtools::install_github("fellstat/TestingHistoryIncidence", subdir="TestingHist
 We begin by loading a synthetic dataset included with the package.
 
 ```{r}
+library(TestingHistoryIncidence)
 data(tstdat)
 
 # Add age
@@ -81,8 +82,9 @@ This dataset has variables defines as:
 We can now estimate incidence using the `testing_incidence` function
 ```{r}
 attach(tstdat)
-inc <- testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test)
+inc <- testing_incidence(report_pos=report_pos, biomarker_art=biomarker_art, 
+                         low_viral=low_viral, hiv=hiv,ever_test=ever_test,
+                         last_test=last_test)
 #print(inc)
 ```
 ```{r, echo=FALSE, results="asis"}
@@ -104,8 +106,9 @@ Here we see an estimated incidence of `r round(inc[1,1]*100,2)`%. Transmission r
 
 Next, we refine the estimate of $E(TID)$ using age. Very young children often do not engage in regular HIV testing, so the observed last test is censored based on the initiation of regular testing. If individuals debut into testing at 13 years old in this population, we adjust for this censoring using the `testing_debut_age` parameter.
 ```{r}
-inc <- testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test, age=age, testing_debut_age=13)
+inc <- testing_incidence(report_pos=report_pos, biomarker_art=biomarker_art, 
+                         low_viral=low_viral, hiv=hiv, ever_test=ever_test, 
+                         last_test=last_test, age=age, testing_debut_age=13)
 #print(inc)
 ```
 ```{r, echo=FALSE, results="asis"}
@@ -121,11 +124,12 @@ The `testing_incidence` function takes a logical `subset` parameter, which may b
 
 ```{r}
 subset <- c(rep(TRUE,1000),rep(FALSE,9000))
-inc1 <- testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test, age=age, 
-                                        testing_debut_age=13, subset=subset)
-inc2 <- testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test, age=age, 
+inc1 <- testing_incidence(report_pos, hiv,ever_test, last_test,  
+                          biomarker_art=biomarker_art, low_viral=low_viral,age=age, 
+                          testing_debut_age=13, subset=subset)
+inc2 <- testing_incidence(report_pos, hiv,
+                                        ever_test, last_test, 
+                          biomarker_art=biomarker_art, low_viral=low_viral, age=age, 
                                         testing_debut_age=13, subset=subset, uniform_missreport=TRUE)
 inc <- rbind(inc1,inc2)
 rownames(inc) <- c("restricted","uniform")
@@ -142,8 +146,8 @@ pander(inc[,c(1,2,3,10,11)],caption=NULL, style = 'rmarkdown')
 Using the `subset` parameter to restrict to an age group will lead to inaccurate estimates due to the fact that individuals infected in one age group become undiagnosed cases in another group as they age. Stratifying by age is achieved using the `age_breaks` parameter, which is used to define the divisions between the age groups of interest.
 
 ```{r}
-inc <- testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test, age=age, 
+inc <- testing_incidence(report_pos, hiv,
+                                        ever_test, last_test, biomarker_art=biomarker_art, low_viral=low_viral, age=age, 
                                         testing_debut_age=13, age_breaks=c(25,35,45,55))
 
 #print(inc[,c(1,2,3,6,9)])
@@ -162,8 +166,8 @@ Confidence intervals and standard errors are constructed using bootstrap resampl
 
 
 ```{r}
-inc <- testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test, age=age, testing_debut_age=13)
+inc <- testing_incidence(report_pos, hiv,
+                                        ever_test, last_test, biomarker_art=biomarker_art, low_viral=low_viral, age=age, testing_debut_age=13)
 
 boots <- bootstrap_incidence(inc, nrep=10)
 #print(boots)
@@ -188,8 +192,8 @@ Survey weights from any sampling design may be included in the analysis through 
 
 ```{r}
 weights <- runif(10000)
-inc <- testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test, age=age, testing_debut_age=13, weights=weights)
+inc <- testing_incidence(report_pos, hiv,
+                                        ever_test, last_test, biomarker_art=biomarker_art, low_viral=low_viral, age=age, testing_debut_age=13, weights=weights)
 
 ```
 

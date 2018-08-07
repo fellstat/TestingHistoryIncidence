@@ -9,22 +9,7 @@ library(ggplot2)
 library(TestingHistoryIncidence)
 options(shiny.maxRequestSize=300*1024^2)
 
-# Define server logic required to draw a histogram
 shinyServer(function(input, output, session) {
-
-  #stop_file <- reactive({
-  #  tempfile()
-  #})
-
-  #stop_file <- tempfile()
-  #write("Ready", stop_file)
-
-  #onStop(function(){
-  #  print("session ended")
-  #  print(stop_file)
-  #  if(file.exists(stop_file))
-  #    unlink(stop_file)
-  #})
 
   get_raw_data <- reactive({
     inFile <- input$file1
@@ -267,10 +252,6 @@ shinyServer(function(input, output, session) {
       stop("No Data Uploaded")
     if(is.null(report_pos))
       stop("Required Variable Not Specified: Report Positive")
-    if(is.null(biomarker_art))
-      stop("Required Variable Not Specified: ART Biomarker")
-    if(is.null(low_viral))
-      stop("Required Variable Not Specified: Low Viral")
     if(is.null(hiv))
       stop("Required Variable Not Specified: HIV Status")
     if(is.null(ever_test))
@@ -283,15 +264,24 @@ shinyServer(function(input, output, session) {
     if(!is.null(strata) && sm_strata < 5){
       stop("Stratifying Variable Has Strata With Too Few Observations")
     }
+    if(is.null(biomarker_art))
+      biomarker_art <- rep(FALSE, length(report_pos))
+    if(is.null(low_viral))
+      low_viral <- rep(FALSE, length(report_pos))
     inc <- list()
     if(is.null(strata)){
-      inc[["all"]] <- testing_incidence(report_pos=report_pos, biomarker_art=biomarker_art, low_viral=low_viral,
+      inc[["all"]] <- testing_incidence(report_pos=report_pos,
+                                        biomarker_art=biomarker_art,
+                                        low_viral=low_viral,
                       hiv=hiv,
-                      ever_test=ever_test, last_test=last_test,
+                      ever_test=ever_test,
+                      last_test=last_test,
                       last_upper=last_upper,
-                      age=age, testing_debut_age=testing_debut_age,
+                      age=age,
+                      testing_debut_age=testing_debut_age,
                       weights=weights,
-                      distribution=distribution, test_pop="negative",
+                      distribution=distribution,
+                      test_pop="negative",
                       age_breaks=age_breaks,
                       subset=subset,
                       uniform_missreport=uniform_missreport)
@@ -303,13 +293,18 @@ shinyServer(function(input, output, session) {
     }else{
       lvls <- levels(strata)
       for(lv in lvls){
-        inc[[lv]] <- testing_incidence(report_pos=report_pos, biomarker_art=biomarker_art, low_viral=low_viral,
+        inc[[lv]] <- testing_incidence(report_pos=report_pos,
+                                       biomarker_art=biomarker_art,
+                                       low_viral=low_viral,
                                           hiv=hiv,
-                                          ever_test=ever_test, last_test=last_test,
+                                          ever_test=ever_test,
+                                       last_test=last_test,
                                           last_upper=last_upper,
-                                          age=age, testing_debut_age=testing_debut_age,
+                                          age=age,
+                                       testing_debut_age=testing_debut_age,
                                           weights=weights,
-                                          distribution=distribution, test_pop="negative",
+                                          distribution=distribution,
+                                       test_pop="negative",
                                           age_breaks=age_breaks,
                                           subset=strata == lv,
                                           uniform_missreport=uniform_missreport)
@@ -330,6 +325,7 @@ shinyServer(function(input, output, session) {
         colnames(result)[1] <- "strata"
     }
     incidence(inc)
+    boot_result(NULL)
     as.data.frame(result)
   }, rownames=FALSE,
   width="400px", digits=4)
@@ -344,7 +340,6 @@ shinyServer(function(input, output, session) {
     }
     nclicks(nclicks() + 1)
     boot_result(data.frame(Status="Running..."))
-    #write("Running...", stop_file)
     if(is.null(incidence()))
       return(NULL)
     nrep <- as.numeric(input$nrep)
@@ -357,12 +352,10 @@ shinyServer(function(input, output, session) {
     prog <- function(i, strata, nstrata){
       interruptor$execInterrupts()
       progress$set(( (strata - 1) * nrep + i) / (nrep*nstrata))
-      #write(paste0("Running... ", floor(100 * ( (strata - 1) * nrep + i) / (nrep*nstrata)),"% Complete"), stop_file)
     }
 
     type <- input$type
     stratified <- length(incc) > 1
-    #if(is.null(rep_weights)){
     result <- finally(
                 catch(
                   future({
@@ -389,12 +382,9 @@ shinyServer(function(input, output, session) {
                       }
                       blist[[i]] <- boot
                     }
-                    #write("Ready", stop_file)
                     do.call(rbind, blist)
                   })  %...>% boot_result,
                   function(e) {
-                      #d <- as.data.frame(error=e$message)
-                      #boot_result(d)
                       boot_result(NULL)
                       print(e$message)
                       showNotification(e$message)
@@ -402,7 +392,6 @@ shinyServer(function(input, output, session) {
                   ),
                 function(){
                   progress$sequentialClose()
-                  #write("Ready", stop_file)
                   nclicks(0)
                 }
     )
@@ -416,65 +405,6 @@ shinyServer(function(input, output, session) {
   observeEvent(input$cancel,{
     print("cancel")
     interruptor$interrupt("User Interrupt")
-    #print(stop_file)
-    #write("interrupt", stop_file)
   })
 
-  observeEvent(input$status,{
-    #showNotification(scan(stop_file, what = "character",sep="-"))
-  })
-
-#   output$bootstrap <- renderTable({
-#     write("0", stop_file)
-#     if(is.null(incidence()))
-#       return(NULL)
-#     if(nclicks() == 0)
-#       return(NULL)
-#     nclicks(0)
-#     nrep <- as.numeric(input$nrep)
-#     prog <- function(i){
-#       if(i %% 10 == 1){
-#         r <- scan(stop_file)
-#         if(r == 1)
-#           stop("User Interrupt")
-#       }
-#     }
-#     incc <- incidence()
-#     rep_weights <- get_rep_weights()
-#     type <- input$type
-#     stratified <- length(incc) > 1
-#     #if(is.null(rep_weights)){
-#     result <- future({
-#       blist <- list()
-#       for(i in 1:length(incc)){
-#         if(is.null(rep_weights))
-#           boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
-#                                                           nrep=nrep,
-#                                                           show_progress=prog)))
-#         else
-#           boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
-#                                       rep_weights=rep_weights,
-#                                       type=type,
-#                                       show_progress=prog)))
-#         if(stratified){
-#           boot <- cbind(names(incc)[i], boot)
-#           names(boot)[1] <- "strata"
-#         }
-#         if(nrow(boot) > 1){
-#           boot <- cbind(row.names(boot), boot)
-#           names(boot)[1] <- "age_subgroup"
-#         }
-#         blist[[i]] <- boot
-#       }
-#       do.call(rbind, blist)
-#     })
-#     #}else{
-#     #  result <- future({
-#     #    bootstrap_incidence(incc[[1]], rep_weights=rep_weights, type=type, show_progress=prog)
-#     #  }) %...>% summary  %...>% as.data.frame
-#     #}
-#     print("exit boot")
-#     result
-#   }, rownames=FALSE,
-#   width="400px")
   })

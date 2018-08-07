@@ -50,8 +50,9 @@ test_that(".fit_dist_empirical", {
 test_that("testing_incidence", {
   data(tstdat)
 
-  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test))
+  inc <- with(tstdat, testing_incidence(report_pos=report_pos, hiv=hiv,
+                                        ever_test=ever_test, last_test=last_test, biomarker_art=biomarker_art,
+                                        low_viral=low_viral))
   expect_equivalent(as.matrix(inc),
                     structure(c(0.00575807622336409, 0.0508601757271186, 0.291371713560825,
                                 0.396263520157325, 0.0897422142330957, 0.1017, 0.707334433262165,
@@ -65,6 +66,9 @@ test_that("testing_incidence", {
   bi <- bootstrap_incidence(inc,nrep=3, show_progress = FALSE)
   expect_equal(summary(bi)[1,1],inc[1,1])
 
+
+  inc <- with(tstdat, testing_incidence(report_pos=report_pos, hiv=hiv,
+                                        ever_test=ever_test, last_test=last_test))
 })
 
 

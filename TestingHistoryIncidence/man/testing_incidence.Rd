@@ -4,20 +4,18 @@
 \alias{testing_incidence}
 \title{Incindence from testing history}
 \usage{
-testing_incidence(report_pos, biomarker_art, low_viral, hiv, ever_test,
-  last_test, last_upper = last_test, age = NULL, testing_debut_age = 0,
-  weights = rep(1, length(report_pos))/length(report_pos),
-  distribution = c("weibull", "empirical"), test_pop = c("negative",
-  "undiagnosed"), ptruth = NULL, ptreated = NULL, aids_dist = function(x)
-  pweibull(x/12, scale = 1/0.086, shape = 2.516), age_breaks = NULL,
-  subset = NULL, uniform_missreport = FALSE)
+testing_incidence(report_pos, hiv, ever_test, last_test,
+  last_upper = last_test, biomarker_art = rep(FALSE, length(report_pos)),
+  low_viral = rep(FALSE, length(report_pos)), age = NULL,
+  testing_debut_age = 0, weights = rep(1,
+  length(report_pos))/length(report_pos), distribution = c("weibull",
+  "empirical"), test_pop = c("negative", "undiagnosed"), ptruth = NULL,
+  ptreated = NULL, aids_dist = function(x) pweibull(x/12, scale = 1/0.086,
+  shape = 2.516), age_breaks = NULL, subset = NULL,
+  uniform_missreport = FALSE)
 }
 \arguments{
 \item{report_pos}{A logical vector indicating whether each subject reported a positive hiv status}
-
-\item{biomarker_art}{A logical vector indicating whether ART antibodies are present. NA if test not done.}
-
-\item{low_viral}{A logical vector indicating whether viral load is <=1000}
 
 \item{hiv}{A logical vector indicating hiv status}
 
@@ -26,6 +24,10 @@ testing_incidence(report_pos, biomarker_art, low_viral, hiv, ever_test,
 \item{last_test}{A numeric vector indicating the time since last hiv test in months. If testing times are binned into buckets, this is the lower bound of the months since last hiv test.}
 
 \item{last_upper}{A numeric vector indicating the upper bound of the months since last hiv test for each individual.}
+
+\item{biomarker_art}{A logical vector indicating whether ART antibodies are present. NA if test not done.}
+
+\item{low_viral}{A logical vector indicating whether viral load is <=1000}
 
 \item{age}{A numeric vector indicating the age of each subject in years.}
 
@@ -56,7 +58,7 @@ If NULL, this is estimated from the data.}
 A data.frame of class test_inc with elements:
 'incidence': the estimated incidence.
 'transmission rate': the estimated transmission rate.
-'pundiag': The estimated proportion of positive cases that are undiagnosed.
+'pundiag': The estimated proportion of positive cases that are undiagnosed after removing treated cases and adjusting for miss-reporting.
 'psay_undiag': The proportion of positive cases that report being undiagnosed.
 'pmiss_class': the proportion whose diagnosis status is incorrectly reported by the individual and are observed as treated due to viral load or art biomarkers.
 'phiv': The proportion with a positive diagnosis.
@@ -79,8 +81,9 @@ should be assigned NA for both their lower and upper bound.
   tstdat$age <- rep(15:64, 200)
 
 
-  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test))
+  inc <- with(tstdat, testing_incidence(report_pos, hiv,
+                                        ever_test, last_test,
+                                        biomarker_art=biomarker_art, low_viral=low_viral))
   inc
 
   # Using last test times divided into bins
@@ -92,25 +95,29 @@ should be assigned NA for both their lower and upper bound.
   tstdat$last_test_upper[tstdat$last_test >= 6 & tstdat$last_test < 12] <- 12
   tstdat$last_test_lower[tstdat$last_test >= 12 & tstdat$last_test < 24] <- 12
   tstdat$last_test_upper[tstdat$last_test >= 12 & tstdat$last_test < 24] <- 24
-  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
-                                        ever_test, last_test_lower, last_test_upper))
+  inc <- with(tstdat, testing_incidence(report_pos, hiv,
+                                        ever_test, last_test_lower, last_test_upper,
+                                        biomarker_art=biomarker_art, low_viral=low_viral))
   inc
 
   # HIV testing starts at age 13
-  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+  inc <- with(tstdat, testing_incidence(report_pos, hiv,
                                         ever_test, last_test,
+                                        biomarker_art=biomarker_art, low_viral=low_viral,
                                         age=age,testing_debut_age=13))
   inc
 
   # Stratify by age
-  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+  inc <- with(tstdat, testing_incidence(report_pos, hiv,
                                         ever_test, last_test,
+                                        biomarker_art=biomarker_art, low_viral=low_viral,
                                         age=age,testing_debut_age=13,age_breaks=c(25,35,45,55)))
   inc
 
   # Pooled estimate probability of miss-reporting diagnosis status across groups
-  inc <- with(tstdat, testing_incidence(report_pos, biomarker_art, low_viral, hiv,
+  inc <- with(tstdat, testing_incidence(report_pos, hiv,
                                         ever_test, last_test,
+                                        biomarker_art=biomarker_art, low_viral=low_viral,
                                         age=age,testing_debut_age=13,
                                         age_breaks=c(25,35,45,55),
                                         uniform_missreport=TRUE))
