@@ -11,6 +11,20 @@ options(shiny.maxRequestSize=300*1024^2)
 # Define server logic required to draw a histogram
 shinyServer(function(input, output, session) {
 
+  #stop_file <- reactive({
+  #  tempfile()
+  #})
+
+  stop_file <- tempfile()
+  write("Ready", stop_file)
+
+  onStop(function(){
+    print("session ended")
+    print(stop_file)
+    if(file.exists(stop_file))
+      unlink(stop_file)
+  })
+
   get_raw_data <- reactive({
     inFile <- input$file1
 
@@ -317,55 +331,147 @@ shinyServer(function(input, output, session) {
     incidence(inc)
     as.data.frame(result)
   }, rownames=FALSE,
-  width="400px")
+  width="400px", digits=4)
 
+  boot_result <- reactiveVal()
   observeEvent(input$run,{
+    if(nclicks() != 0){
+      print("Already running")
+      return(NULL)
+    }
     nclicks(nclicks() + 1)
-  })
-
-  output$bootstrap <- renderTable({
+    boot_result(data.frame(Status="Running..."))
+    write("Running...", stop_file)
     if(is.null(incidence()))
       return(NULL)
-    if(nclicks() == 0)
-      return(NULL)
-    nclicks(0)
     nrep <- as.numeric(input$nrep)
-    prog <- TRUE
     incc <- incidence()
     rep_weights <- get_rep_weights()
+    if(!is.null(rep_weights))
+      nrep <- ncol(rep_weights)
+
+    prog <- function(i, strata, nstrata){
+      #if(i %% 10 == 1){
+        r <- scan(stop_file, what = "character",sep="-")
+        if(r == "interrupt")
+          stop("User Interrupt")
+        write(paste0("Running... ", floor(100 * ( (strata - 1) * nrep + i) / (nrep*nstrata)),"% Complete"), stop_file)
+      #}
+    }
+
     type <- input$type
     stratified <- length(incc) > 1
     #if(is.null(rep_weights)){
-    result <- future({
-      blist <- list()
-      for(i in 1:length(incc)){
-        if(is.null(rep_weights))
-          boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
-                                                          nrep=nrep,
-                                                          show_progress=prog)))
-        else
-          boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
-                                      rep_weights=rep_weights,
-                                      type=type,
-                                      show_progress=prog)))
-        if(stratified){
-          boot <- cbind(names(incc)[i], boot)
-          names(boot)[1] <- "strata"
-        }
-        if(nrow(boot) > 1){
-          boot <- cbind(row.names(boot), boot)
-          names(boot)[1] <- "age_subgroup"
-        }
-        blist[[i]] <- boot
-      }
-      do.call(rbind, blist)
-    })
-    #}else{
-    #  result <- future({
-    #    bootstrap_incidence(incc[[1]], rep_weights=rep_weights, type=type, show_progress=prog)
-    #  }) %...>% summary  %...>% as.data.frame
-    #}
-    result
-  }, rownames=FALSE,
-  width="400px")
-})
+    result <- finally(
+                catch(
+                  future({
+                    blist <- list()
+                    nstrata <- length(incc)
+                    for(i in 1:nstrata){
+                      callback <- function(k) prog(k, i, nstrata)
+                      if(is.null(rep_weights))
+                        boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
+                                                                          nrep=nrep,
+                                                                          show_progress=callback)))
+                      else
+                        boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
+                                                                          rep_weights=rep_weights,
+                                                                          type=type,
+                                                                          show_progress=callback)))
+                      if(stratified){
+                        boot <- cbind(names(incc)[i], boot)
+                        names(boot)[1] <- "strata"
+                      }
+                      if(nrow(boot) > 1){
+                        boot <- cbind(row.names(boot), boot)
+                        names(boot)[1] <- "age_subgroup"
+                      }
+                      blist[[i]] <- boot
+                    }
+                    write("Ready", stop_file)
+                    do.call(rbind, blist)
+                  })  %...>% boot_result,
+                  function(e) {
+                      #d <- as.data.frame(error=e$message)
+                      #boot_result(d)
+                      boot_result(NULL)
+                      print(e$message)
+                      showNotification(e$message)
+                    }
+                  ),
+                function(){
+                  write("Ready", stop_file)
+                  nclicks(0)
+                }
+    )
+
+    NULL
+  })
+  output$bootstrap <- renderTable({
+    req(boot_result())
+  },digits=4)
+
+  observeEvent(input$cancel,{
+    print("cancel")
+    print(stop_file)
+    write("interrupt", stop_file)
+  })
+
+  observeEvent(input$status,{
+    showNotification(scan(stop_file, what = "character",sep="-"))
+  })
+
+#   output$bootstrap <- renderTable({
+#     write("0", stop_file)
+#     if(is.null(incidence()))
+#       return(NULL)
+#     if(nclicks() == 0)
+#       return(NULL)
+#     nclicks(0)
+#     nrep <- as.numeric(input$nrep)
+#     prog <- function(i){
+#       if(i %% 10 == 1){
+#         r <- scan(stop_file)
+#         if(r == 1)
+#           stop("User Interrupt")
+#       }
+#     }
+#     incc <- incidence()
+#     rep_weights <- get_rep_weights()
+#     type <- input$type
+#     stratified <- length(incc) > 1
+#     #if(is.null(rep_weights)){
+#     result <- future({
+#       blist <- list()
+#       for(i in 1:length(incc)){
+#         if(is.null(rep_weights))
+#           boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
+#                                                           nrep=nrep,
+#                                                           show_progress=prog)))
+#         else
+#           boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
+#                                       rep_weights=rep_weights,
+#                                       type=type,
+#                                       show_progress=prog)))
+#         if(stratified){
+#           boot <- cbind(names(incc)[i], boot)
+#           names(boot)[1] <- "strata"
+#         }
+#         if(nrow(boot) > 1){
+#           boot <- cbind(row.names(boot), boot)
+#           names(boot)[1] <- "age_subgroup"
+#         }
+#         blist[[i]] <- boot
+#       }
+#       do.call(rbind, blist)
+#     })
+#     #}else{
+#     #  result <- future({
+#     #    bootstrap_incidence(incc[[1]], rep_weights=rep_weights, type=type, show_progress=prog)
+#     #  }) %...>% summary  %...>% as.data.frame
+#     #}
+#     print("exit boot")
+#     result
+#   }, rownames=FALSE,
+#   width="400px")
+  })

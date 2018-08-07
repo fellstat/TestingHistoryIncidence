@@ -163,7 +163,9 @@ shinyUI(
                         selected="bootstrap"
                       )
                     ),
-                    actionButton('run', 'Run')
+                    actionButton('run', 'Run'),
+                    actionButton('cancel', 'Cancel'),
+                    actionButton('status', 'Check Status')
                    )
 
 
