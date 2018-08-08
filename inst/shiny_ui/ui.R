@@ -9,8 +9,14 @@ shinyUI(
       h4('Welcome to The Testing History Incidence Tools'),
       br(),
       p("The purpose of this tool is the estimation of incidence from a single cross-sectional survey utilizing self-reported testing history."),
-      br(),
-      h5('Please proceed to the', em('Load Data'), 'tab')
+      br(),br(),
+      p("You can get started with an example dataset available at:"),
+      a("Download",href="https://minhaskamal.github.io/DownGit/#/home?url=https://github.com/fellstat/TestingHistoryIncidence/blob/master/inst/shiny_ui/tstdat.csv"),
+      br(),br(),p("Documentation for the application is available at:"),
+      a("Documentation Wiki",href="https://github.com/fellstat/TestingHistoryIncidence/wiki/Shiny-App-Documentation"),
+      br(),br(),p("and a youtube walkthrough can be found at"),
+      a("Video",href=""),
+      br(),br(),h3('Please proceed to the', em('Data'), 'tab')
     ),
     tabPanel('Data',
       fluidPage(
