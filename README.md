@@ -19,6 +19,7 @@ devtools::install_github("fellstat/TestingHistoryIncidence", dependencies="Sugge
 
 * For a more detailed description of what can be done with the ``ShinyAsyncTools`` package, **[see the introductory vignette](http://htmlpreview.github.io/?https://github.com/fellstat/TestingHistoryIncidence/blob/master/inst/doc/tst_hist_vig.html)**.
 
+
 ## Shiny User Interface
 
 A user interface to the methods is provided in the package, and can be launched locally with
@@ -26,3 +27,6 @@ A user interface to the methods is provided in the package, and can be launched 
 library(TestingHistoryIncidence)
 shiny_testing_history()
 ```
+* A 15 minute video documenting the various options of the UI and how to use them is available **[here](https://www.youtube.com/watch?v=YVPcLLs9zxc&t=08s)**.
+* See the wiki guide for the interface **[here](https://github.com/fellstat/TestingHistoryIncidence/wiki/Shiny-App-Documentation)**
+

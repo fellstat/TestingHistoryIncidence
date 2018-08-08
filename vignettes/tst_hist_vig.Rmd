@@ -50,7 +50,8 @@ The development version of the package may be installed through github
 # If devtools is not installed:
 # install.packages("devtools")
 
-devtools::install_github("fellstat/TestingHistoryIncidence", subdir="TestingHistoryIncidence")
+devtools::install_github("fellstat/ShinyAsyncTools")
+devtools::install_github("fellstat/TestingHistoryIncidence", dependencies="Suggests")
 ```
 
 ## Basic Usage
