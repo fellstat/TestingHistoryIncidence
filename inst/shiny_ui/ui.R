@@ -1,6 +1,5 @@
 library(shiny)
 library(shinyWidgets)
-library(shinycssloaders)
 # Define UI for application that draws a histogram
 shinyUI(
    navbarPage('Testing History Incidence',
@@ -173,7 +172,7 @@ shinyUI(
                    h3("Incidence Results"),
                    tableOutput("inc_results"),
                    h3("Bootstrap Intervals"),
-                   withSpinner(tableOutput("bootstrap"))
+                   tableOutput("bootstrap")
                  )
               )
              )

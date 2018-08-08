@@ -21,7 +21,6 @@ Suggests: testthat,
     pander,
     shiny,
     shinyWidgets,
-    shinycssloaders,
     promises,
     future,
     ShinyAsyncTools

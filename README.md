@@ -11,7 +11,7 @@ To install the latest development version from the github repo run:
 # install.packages("devtools")
 
 devtools::install_github("fellstat/ShinyAsyncTools")
-devtools::install_github("fellstat/TestingHistoryIncidence")
+devtools::install_github("fellstat/TestingHistoryIncidence", dependencies="Suggests")
 ```
 
 ## Resources
