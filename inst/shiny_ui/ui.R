@@ -15,7 +15,7 @@ shinyUI(
       br(),br(),p("Documentation for the application is available at:"),
       a("Documentation Wiki",href="https://github.com/fellstat/TestingHistoryIncidence/wiki/Shiny-App-Documentation"),
       br(),br(),p("and a youtube walkthrough can be found at"),
-      a("Video",href=""),
+      a("Video",href="https://www.youtube.com/watch?v=YVPcLLs9zxc"),
       br(),br(),h3('Please proceed to the', em('Data'), 'tab')
     ),
     tabPanel('Data',
