@@ -23,5 +23,6 @@ Suggests: testthat,
     shinyWidgets,
     promises,
     future,
-    ipc
+    ipc,
+    ggplot2
 VignetteBuilder: knitr
