@@ -3,7 +3,7 @@
 library(shiny)
 library(promises)
 library(future)
-library(ShinyAsyncTools)
+library(ipc)
 plan(multiprocess)
 library(ggplot2)
 library(TestingHistoryIncidence)

@@ -23,5 +23,5 @@ Suggests: testthat,
     shinyWidgets,
     promises,
     future,
-    ShinyAsyncTools
+    ipc
 VignetteBuilder: knitr
