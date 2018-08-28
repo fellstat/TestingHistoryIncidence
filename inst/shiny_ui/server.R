@@ -7,6 +7,7 @@ library(ipc)
 plan(multiprocess)
 library(ggplot2)
 library(TestingHistoryIncidence)
+library(survey)
 options(shiny.maxRequestSize=300*1024^2)
 
 shinyServer(function(input, output, session) {
@@ -22,7 +23,8 @@ shinyServer(function(input, output, session) {
 
     for(name in c("hiv","biomarker_art","low_viral","ever_test",
                   "report_pos","last_test","last_test_lower",
-                  "last_test_upper","age", "weights","strata"))
+                  "last_test_upper","age", "weights","strata",
+                  "design_strata","design_clusters"))
       updateSelectizeInput(session, name, choices = c("Choose Variable"="",vars))
     updatePickerInput(session, "rep_weights", choices = vars)
     dat
@@ -130,6 +132,14 @@ shinyServer(function(input, output, session) {
     get_categorical("strata")
   })
 
+  get_design_strata <- reactive({
+    get_categorical("design_strata")
+  })
+
+  get_design_clusters <- reactive({
+    get_categorical("design_clusters")
+  })
+
   output$contents <- renderTable({
     if(is.null(get_raw_data()))
       return(NULL)
@@ -220,6 +230,12 @@ shinyServer(function(input, output, session) {
   nclicks <- reactiveVal(0)
   output$inc_results <- renderTable({
     nclicks(0)
+
+    # Rerun on UI change
+    get_design_clusters()
+    get_design_strata()
+    get_rep_weights()
+
     report_pos <- get_report_pos()
     biomarker_art <- get_biomarker_art()
     low_viral <- get_low_viral()
@@ -273,18 +289,18 @@ shinyServer(function(input, output, session) {
       inc[["all"]] <- testing_incidence(report_pos=report_pos,
                                         biomarker_art=biomarker_art,
                                         low_viral=low_viral,
-                      hiv=hiv,
-                      ever_test=ever_test,
-                      last_test=last_test,
-                      last_upper=last_upper,
-                      age=age,
-                      testing_debut_age=testing_debut_age,
-                      weights=weights,
-                      distribution=distribution,
-                      test_pop="negative",
-                      age_breaks=age_breaks,
-                      subset=subset,
-                      uniform_missreport=uniform_missreport)
+                                        hiv=hiv,
+                                        ever_test=ever_test,
+                                        last_test=last_test,
+                                        last_upper=last_upper,
+                                        age=age,
+                                        testing_debut_age=testing_debut_age,
+                                        weights=weights,
+                                        distribution=distribution,
+                                        test_pop="negative",
+                                        age_breaks=age_breaks,
+                                        subset=subset,
+                                        uniform_missreport=uniform_missreport)
       result <- inc[[1]]
       if(!is.null(age_breaks)){
         result <- cbind(row.names(result), result)
@@ -296,18 +312,18 @@ shinyServer(function(input, output, session) {
         inc[[lv]] <- testing_incidence(report_pos=report_pos,
                                        biomarker_art=biomarker_art,
                                        low_viral=low_viral,
-                                          hiv=hiv,
-                                          ever_test=ever_test,
+                                       hiv=hiv,
+                                       ever_test=ever_test,
                                        last_test=last_test,
-                                          last_upper=last_upper,
-                                          age=age,
+                                       last_upper=last_upper,
+                                       age=age,
                                        testing_debut_age=testing_debut_age,
-                                          weights=weights,
-                                          distribution=distribution,
+                                       weights=weights,
+                                       distribution=distribution,
                                        test_pop="negative",
-                                          age_breaks=age_breaks,
-                                          subset=strata == lv,
-                                          uniform_missreport=uniform_missreport)
+                                       age_breaks=age_breaks,
+                                       subset=strata == lv,
+                                       uniform_missreport=uniform_missreport)
       }
       result <- inc
       for(i in 1:length(inc)){
@@ -342,9 +358,44 @@ shinyServer(function(input, output, session) {
     boot_result(data.frame(Status="Running..."))
     if(is.null(incidence()))
       return(NULL)
+    type <- input$type
     nrep <- as.numeric(input$nrep)
     incc <- incidence()
     rep_weights <- get_rep_weights()
+    design_strata <- get_design_strata()
+    design_clusters <- get_design_clusters()
+    weights <- get_weights()
+    if(is.null(rep_weights) & (!is.null(design_strata) || !is.null(design_clusters))){
+      print("Generating survey replicate weights from design")
+      if(is.null(weights)){
+        showNotification("Error: Survey design, but no weights given.")
+        nclicks(0)
+        return()
+      }
+      if(nrep > 5000){
+        showNotification("Error: number of replicates must be < 5000 for survey bootstraps without replicate weights")
+        nclicks(0)
+        return()
+      }
+      if(is.null(design_strata) & !is.null(design_clusters)){
+        df <- data.frame(design_clusters,weights)
+        des <- svydesign(id = ~design_clusters,
+                         weights = ~weights, data=df)
+      }else if(!is.null(design_strata) & is.null(design_clusters)){
+        df <- data.frame(design_strata,weights)
+        des <- svydesign(id = ~1,
+                         strata = ~ design_strata,
+                         weights = ~weights, data=df)
+      }else{
+        df <- data.frame(design_clusters,design_strata,weights)
+        des <- svydesign(id = ~design_clusters,
+                         strata = ~ design_strata,
+                         weights = ~weights, data=df)
+      }
+      des1 <- as.svrepdesign(des, type="bootstrap", compress=FALSE, replicates=nrep)
+      rep_weights <- des1$repweights * weights
+      type <- "bootstrap"
+    }
     if(!is.null(rep_weights))
       nrep <- ncol(rep_weights)
 
@@ -353,47 +404,45 @@ shinyServer(function(input, output, session) {
       interruptor$execInterrupts()
       progress$set(( (strata - 1) * nrep + i) / (nrep*nstrata))
     }
-
-    type <- input$type
     stratified <- length(incc) > 1
     result <- finally(
-                catch(
-                  future({
-                    blist <- list()
-                    nstrata <- length(incc)
-                    for(i in 1:nstrata){
-                      callback <- function(k) prog(k, i, nstrata)
-                      if(is.null(rep_weights))
-                        boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
-                                                                          nrep=nrep,
-                                                                          show_progress=callback)))
-                      else
-                        boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
-                                                                          rep_weights=rep_weights,
-                                                                          type=type,
-                                                                          show_progress=callback)))
-                      if(stratified){
-                        boot <- cbind(names(incc)[i], boot)
-                        names(boot)[1] <- "strata"
-                      }
-                      if(nrow(boot) > 1){
-                        boot <- cbind(row.names(boot), boot)
-                        names(boot)[1] <- "age_subgroup"
-                      }
-                      blist[[i]] <- boot
-                    }
-                    do.call(rbind, blist)
-                  })  %...>% boot_result,
-                  function(e) {
-                      boot_result(NULL)
-                      print(e$message)
-                      showNotification(e$message)
-                    }
-                  ),
-                function(){
-                  progress$sequentialClose()
-                  nclicks(0)
-                }
+      catch(
+        future({
+          blist <- list()
+          nstrata <- length(incc)
+          for(i in 1:nstrata){
+            callback <- function(k) prog(k, i, nstrata)
+            if(is.null(rep_weights))
+              boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
+                                                                nrep=nrep,
+                                                                show_progress=callback)))
+            else
+              boot <- as.data.frame(summary(bootstrap_incidence(incc[[i]],
+                                                                rep_weights=rep_weights,
+                                                                type=type,
+                                                                show_progress=callback)))
+            if(stratified){
+              boot <- cbind(names(incc)[i], boot)
+              names(boot)[1] <- "strata"
+            }
+            if(nrow(boot) > 1){
+              boot <- cbind(row.names(boot), boot)
+              names(boot)[1] <- "age_subgroup"
+            }
+            blist[[i]] <- boot
+          }
+          do.call(rbind, blist)
+        })  %...>% boot_result,
+        function(e) {
+          boot_result(NULL)
+          print(e$message)
+          showNotification(e$message)
+        }
+      ),
+      function(){
+        progress$sequentialClose()
+        nclicks(0)
+      }
     )
 
     NULL
@@ -407,4 +456,4 @@ shinyServer(function(input, output, session) {
     interruptor$interrupt("User Interrupt")
   })
 
-  })
+})
